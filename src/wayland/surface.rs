@@ -1,7 +1,9 @@
 use std::error::Error;
 
 use crate::wayland::{
-	CtxType, RcCell, WaylandObject, WaylandObjectKind, buffer::Buffer, wire::{Id, WireArgument, WireRequest}
+	CtxType, EventAction, RcCell, WaylandObject, WaylandObjectKind,
+	buffer::Buffer,
+	wire::{Id, WireArgument, WireRequest},
 };
 
 pub struct Surface {
@@ -60,7 +62,11 @@ impl Surface {
 }
 
 impl WaylandObject for Surface {
-	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
+	fn handle(
+		&mut self,
+		opcode: super::OpCode,
+		payload: &[u8],
+	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		todo!()
 	}
 

@@ -3,10 +3,7 @@ use std::{cell::RefCell, error::Error, rc::Rc};
 use crate::{
 	drop,
 	wayland::{
-		CtxType, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
-		registry::Registry,
-		surface::Surface,
-		wire::{FromWirePayload, Id, WireArgument, WireRequest},
+		CtxType, DebugLevel, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind, registry::Registry, surface::Surface, wire::{FromWirePayload, Id, WireArgument, WireRequest}
 	},
 };
 
@@ -39,8 +36,8 @@ impl XdgWmBase {
 		})
 	}
 
-	pub(crate) fn wl_pong(&self, serial: u32) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+	pub(crate) fn wl_pong(&self, serial: u32) -> Result<WireRequest, Box<dyn Error>> {
+		Ok(WireRequest {
 			sender_id: self.id,
 			opcode: 3,
 			args: vec![WireArgument::UnInt(serial)],
@@ -125,6 +122,8 @@ pub struct XdgTopLevel {
 	pub id: Id,
 	ctx: CtxType,
 	parent: RcCell<XdgSurface>,
+	title: Option<String>,
+	appid: Option<String>,
 }
 
 impl XdgTopLevel {
@@ -135,6 +134,8 @@ impl XdgTopLevel {
 			id: 0,
 			ctx: xdg_surface.borrow().ctx.clone(),
 			parent: xdg_surface.clone(),
+			title: None,
+			appid: None,
 		}));
 		let id = xdgtl
 			.borrow()
@@ -145,6 +146,36 @@ impl XdgTopLevel {
 		xdg_surface.borrow().wl_get_toplevel(id)?;
 		xdgtl.borrow_mut().id = id;
 		Ok(xdgtl)
+	}
+
+	pub(crate) fn wl_set_app_id(&self, id: String) -> Result<(), Box<dyn Error>> {
+		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+			sender_id: self.id,
+			opcode: 3,
+			args: vec![
+				WireArgument::String(id)
+			],
+		})
+	}
+
+	pub fn set_app_id(&mut self, id: String) -> Result<(), Box<dyn Error>> {
+		self.appid = Some(id.clone());
+		self.wl_set_app_id(id)
+	}
+
+	pub(crate) fn wl_set_title(&self, id: String) -> Result<(), Box<dyn Error>> {
+		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+			sender_id: self.id,
+			opcode: 2,
+			args: vec![
+				WireArgument::String(id)
+			],
+		})
+	}
+
+	pub fn set_title(&mut self, id: String) -> Result<(), Box<dyn Error>> {
+		self.title = Some(id.clone());
+		self.wl_set_title(id)
 	}
 }
 
@@ -167,17 +198,17 @@ enum XdgTopLevelStates {
 }
 
 impl WaylandObject for XdgWmBase {
-	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
+	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<Vec<EventAction>, Box<dyn Error>> {
+		let mut pending = vec![];
 		match opcode {
 			// ping
 			0 => {
 				let serial = u32::from_wire(payload)?;
-				self.wl_pong(serial)
-			}
-			inv => {
-				Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed())
-			}
+				pending.push(EventAction::Request(self.wl_pong(serial)?));
+			},
+			inv => return Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed()),
 		}
+		Ok(pending)
 	}
 
 	fn as_str(&self) -> &'static str {
@@ -186,15 +217,16 @@ impl WaylandObject for XdgWmBase {
 }
 
 impl WaylandObject for XdgSurface {
-	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
+	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<Vec<EventAction>, Box<dyn Error>> {
+		let mut pending = vec![];
 		match opcode {
 			// configure
 			0 => {
 				let serial = u32::from_wire(payload)?;
-				Ok(())
 			}
-			inv => Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed()),
+			inv => return Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed()),
 		}
+		Ok(pending)
 	}
 
 	fn as_str(&self) -> &'static str {
@@ -203,7 +235,8 @@ impl WaylandObject for XdgSurface {
 }
 
 impl WaylandObject for XdgTopLevel {
-	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
+	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<Vec<EventAction>, Box<dyn Error>> {
+		let mut pending = vec![];
 		match opcode {
 			// configure
 			0 => {
@@ -219,8 +252,9 @@ impl WaylandObject for XdgTopLevel {
 						}
 					})
 					.collect::<Result<Vec<_>, _>>()?;
-				println!("w: {}, h: {}, states: {:?}", w, h, states);
-				Ok(())
+				pending.push(
+					EventAction::DebugMessage(DebugLevel::Verbose, format!("{} configure // w: {}, h: {}, states: {:?}", self.as_str(), w, h, states))
+				);
 			}
 			// close
 			1 => {
@@ -234,10 +268,9 @@ impl WaylandObject for XdgTopLevel {
 			3 => {
 				todo!()
 			}
-			inv => {
-				Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed())
-			}
+			inv => return Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed()),
 		}
+		Ok(pending)
 	}
 
 	fn as_str(&self) -> &'static str {

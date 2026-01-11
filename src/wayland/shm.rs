@@ -4,7 +4,7 @@ use std::{cell::RefCell, collections::HashSet, error::Error, ffi::CString, os::f
 use crate::{
 	drop,
 	wayland::{
-		CtxType, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+		CtxType, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
 		buffer::Buffer,
 		registry::Registry,
 		wire::{FromWirePayload, Id, WireArgument, WireRequest},
@@ -184,21 +184,33 @@ impl SharedMemoryPool {
 }
 
 impl WaylandObject for SharedMemory {
-	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
+	fn handle(
+		&mut self,
+		opcode: super::OpCode,
+		payload: &[u8],
+	) -> Result<Vec<EventAction>, Box<dyn Error>> {
+		let mut pending = vec![];
 		match opcode {
 			0 => {
 				let format = u32::from_wire(payload)?;
 				if let Ok(pf) = PixelFormat::from_u32(format) {
 					self.push_pix_format(pf);
+					pending.push(EventAction::DebugMessage(
+						crate::wayland::DebugLevel::Verbose,
+						format!("pushing pixel format {:?} (0x{:08x})", pf, format),
+					));
 				} else {
-					eprintln!("found unrecognized pixel format 0x{:08x}", format);
+					pending.push(EventAction::DebugMessage(
+						crate::wayland::DebugLevel::Important,
+						format!("found unrecognized pixel format 0x{:08x}", format),
+					));
 				}
 			}
 			inv => {
-				eprintln!("invalid shm opcode {}", inv);
+				return Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed());
 			}
 		}
-		Ok(())
+		Ok(pending)
 	}
 
 	fn as_str(&self) -> &'static str {
@@ -207,7 +219,11 @@ impl WaylandObject for SharedMemory {
 }
 
 impl WaylandObject for SharedMemoryPool {
-	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
+	fn handle(
+		&mut self,
+		opcode: super::OpCode,
+		payload: &[u8],
+	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		todo!()
 	}
 

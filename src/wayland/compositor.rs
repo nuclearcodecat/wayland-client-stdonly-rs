@@ -1,7 +1,7 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::wayland::{
-	CtxType, RcCell, WaylandObject, WaylandObjectKind,
+	CtxType, EventAction, RcCell, WaylandObject, WaylandObjectKind,
 	registry::Registry,
 	surface::Surface,
 	wire::{Id, WireArgument, WireRequest},
@@ -56,7 +56,11 @@ impl Compositor {
 }
 
 impl WaylandObject for Compositor {
-	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
+	fn handle(
+		&mut self,
+		opcode: super::OpCode,
+		payload: &[u8],
+	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		todo!()
 	}
 

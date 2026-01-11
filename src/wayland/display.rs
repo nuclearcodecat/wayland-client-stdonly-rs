@@ -1,5 +1,6 @@
 use crate::wayland::{
-	CtxType, OpCode, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+	CtxType, EventAction, OpCode, RcCell, RecvError, WaylandError, WaylandObject,
+	WaylandObjectKind,
 	callback::Callback,
 	registry::Registry,
 	wire::{FromWirePayload, Id, WireArgument, WireRequest},
@@ -58,8 +59,13 @@ impl Display {
 }
 
 impl WaylandObject for Display {
-	fn handle(&mut self, opcode: OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
+	fn handle(
+		&mut self,
+		opcode: OpCode,
+		payload: &[u8],
+	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let p = payload;
+		let mut pending = vec![];
 		match opcode {
 			0 => {
 				let obj_id = u32::from_wire(&p[8..])?;
@@ -76,6 +82,14 @@ impl WaylandObject for Display {
 						.ok_or(WaylandError::ObjectNonExistent)?,
 					message
 				);
+				pending.push(EventAction::Error(
+					RecvError {
+						id: obj_id,
+						code,
+						msg: message,
+					}
+					.boxed(),
+				));
 			}
 			1 => {
 				let deleted_id = u32::from_wire(&payload[8..])?;
@@ -83,13 +97,14 @@ impl WaylandObject for Display {
 				// 	"==================== ID {:?} GOT DELETED (unimpl)",
 				// 	deleted_id
 				// );
-				self.ctx.borrow_mut().wlim.free_id(deleted_id)?;
+				// self.ctx.borrow_mut().wlim.free_id(deleted_id)?;
+				pending.push(EventAction::IdDeletion(deleted_id));
 			}
-			_ => {
-				eprintln!("invalid display event");
+			inv => {
+				return Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed());
 			}
 		}
-		Ok(())
+		Ok(pending)
 	}
 
 	fn as_str(&self) -> &'static str {

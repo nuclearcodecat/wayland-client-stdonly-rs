@@ -1,6 +1,6 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
-use crate::wayland::{CtxType, RcCell, WaylandObject, WaylandObjectKind, wire::Id};
+use crate::wayland::{CtxType, EventAction, RcCell, WaylandObject, WaylandObjectKind, wire::Id};
 
 pub struct Callback {
 	pub(crate) id: Id,
@@ -25,7 +25,7 @@ impl WaylandObject for Callback {
 		&mut self,
 		opcode: super::OpCode,
 		payload: &[u8],
-	) -> Result<(), Box<dyn std::error::Error>> {
+	) -> Result<Vec<EventAction>, Box<dyn std::error::Error>> {
 		todo!()
 	}
 

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, error::Error};
 
 use crate::wayland::{
-	CtxType, OpCode, WaylandError, WaylandObject, WaylandObjectKind,
+	CtxType, DebugLevel, EventAction, OpCode, WaylandError, WaylandObject, WaylandObjectKind,
 	wire::{FromWirePayload, Id, WireArgument, WireRequest},
 };
 
@@ -71,13 +71,19 @@ impl Registry {
 }
 
 impl WaylandObject for Registry {
-	fn handle(&mut self, opcode: OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
+	fn handle(
+		&mut self,
+		opcode: OpCode,
+		payload: &[u8],
+	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let p = payload;
+		let mut pending = vec![];
 		match opcode {
 			0 => {
 				let name = u32::from_wire(p)?;
 				let interface = String::from_wire(&p[4..])?;
 				let version = u32::from_wire(&p[p.len() - 4..])?;
+				let msg = format!("inserted interface {} version {}", interface, version);
 				self.inner.insert(
 					name,
 					RegistryEntry {
@@ -85,7 +91,7 @@ impl WaylandObject for Registry {
 						version,
 					},
 				);
-				Ok(())
+				pending.push(EventAction::DebugMessage(DebugLevel::Verbose, msg));
 			}
 			// can global_remove even happen
 			1 => {
@@ -93,9 +99,10 @@ impl WaylandObject for Registry {
 				todo!()
 			}
 			inv => {
-				Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed())
+				return Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed());
 			}
 		}
+		Ok(pending)
 	}
 
 	fn as_str(&self) -> &'static str {

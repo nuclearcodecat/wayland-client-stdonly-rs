@@ -1,5 +1,11 @@
-use crate::wayland::wire::{Id, MessageManager};
-use std::{cell::RefCell, collections::HashMap, error::Error, fmt, rc::Rc};
+use crate::wayland::wire::{Id, MessageManager, WireRequest};
+use std::{
+	cell::RefCell,
+	collections::HashMap,
+	error::Error,
+	fmt::{self, Display},
+	rc::Rc,
+};
 pub mod buffer;
 pub mod callback;
 pub mod compositor;
@@ -12,8 +18,47 @@ pub mod xdgshell;
 
 pub type OpCode = usize;
 
+#[derive(Debug)]
+struct RecvError {
+	id: Id,
+	code: u32,
+	msg: String,
+}
+
+impl Display for RecvError {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "id: {}, code: {}\nmsg: {}", self.id, self.code, self.msg)
+	}
+}
+
+impl Error for RecvError {}
+
+impl RecvError {
+	pub fn boxed(self) -> Box<Self> {
+		Box::new(self)
+	}
+}
+
+#[repr(usize)]
+enum DebugLevel {
+	Verbose,
+	Important,
+	Severe,
+}
+
+enum EventAction {
+	Request(WireRequest),
+	IdDeletion(Id),
+	Error(Box<dyn Error>),
+	DebugMessage(DebugLevel, String),
+}
+
 pub trait WaylandObject {
-	fn handle(&mut self, opcode: OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>>;
+	fn handle(
+		&mut self,
+		opcode: OpCode,
+		payload: &[u8],
+	) -> Result<Vec<EventAction>, Box<dyn Error>>;
 	fn as_str(&self) -> &'static str;
 }
 
@@ -32,7 +77,7 @@ impl Context {
 		}
 	}
 
-	pub fn serialize_events(&mut self) -> Result<(), Box<dyn Error>> {
+	pub fn handle_events(&mut self) -> Result<(), Box<dyn Error>> {
 		println!("serializer called");
 		let mut retries = 0;
 		while self.wlmm.get_events()? == 0 && retries < 9999 {
@@ -156,9 +201,13 @@ impl fmt::Display for WaylandError {
 			WaylandError::InvalidPixelFormat => {
 				write!(f, "an invalid pixel format has been received")
 			}
-			WaylandError::InvalidOpCode(op, int) => write!(f, "an invalid {} opcode has been received on interface {}", op, int),
+			WaylandError::InvalidOpCode(op, int) => {
+				write!(f, "an invalid {} opcode has been received on interface {}", op, int)
+			}
 			WaylandError::NoSerial => write!(f, "no serial has been found"),
-			WaylandError::InvalidEnumVariant => write!(f, "an invalid enum variant has been received"),
+			WaylandError::InvalidEnumVariant => {
+				write!(f, "an invalid enum variant has been received")
+			}
 		}
 	}
 }
