@@ -1,11 +1,14 @@
 use std::{cell::RefCell, collections::HashSet, error::Error, ffi::CString, os::fd::RawFd, rc::Rc};
 // std depends on libc anyway so i consider using it fair
 // i may replace this with asm in the future but that means amd64 only
-use crate::wayland::{
-	CtxType, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
-	buffer::Buffer,
-	registry::Registry,
-	wire::{FromWirePayload, Id, WireArgument, WireRequest},
+use crate::{
+	drop,
+	wayland::{
+		CtxType, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+		buffer::Buffer,
+		registry::Registry,
+		wire::{FromWirePayload, Id, WireArgument, WireRequest},
+	},
 };
 use libc::{O_CREAT, O_RDWR, ftruncate, shm_open, shm_unlink};
 
@@ -147,6 +150,7 @@ impl SharedMemoryPool {
 			height,
 			stride,
 			format,
+			in_use: false,
 		}));
 		let id =
 			self.ctx.borrow_mut().wlim.new_id_registered(WaylandObjectKind::Buffer, buf.clone());
@@ -183,7 +187,7 @@ impl WaylandObject for SharedMemory {
 	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
 		match opcode {
 			0 => {
-				let format = u32::from_wire(&payload[8..])?;
+				let format = u32::from_wire(payload)?;
 				if let Ok(pf) = PixelFormat::from_u32(format) {
 					self.push_pix_format(pf);
 				} else {
@@ -196,10 +200,20 @@ impl WaylandObject for SharedMemory {
 		}
 		Ok(())
 	}
+
+	fn as_str(&self) -> &'static str {
+		WaylandObjectKind::SharedMemory.as_str()
+	}
 }
 
 impl WaylandObject for SharedMemoryPool {
 	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
 		todo!()
 	}
+
+	fn as_str(&self) -> &'static str {
+		WaylandObjectKind::SharedMemoryPool.as_str()
+	}
 }
+
+drop!(SharedMemoryPool);

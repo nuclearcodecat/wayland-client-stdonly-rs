@@ -1,5 +1,8 @@
 use crate::wayland::{
-	CtxType, OpCode, RcCell, WaylandError, WaylandObject, WaylandObjectKind, callback::Callback, registry::Registry, wire::{FromWirePayload, Id, WireArgument, WireRequest}
+	CtxType, OpCode, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+	callback::Callback,
+	registry::Registry,
+	wire::{FromWirePayload, Id, WireArgument, WireRequest},
 };
 use std::{cell::RefCell, error::Error, rc::Rc};
 
@@ -22,7 +25,8 @@ impl Display {
 
 	pub fn make_registry(&mut self) -> Result<RcCell<Registry>, Box<dyn Error>> {
 		let reg = Rc::new(RefCell::new(Registry::new_empty(0, self.ctx.clone())));
-		let id = self.ctx.borrow_mut().wlim.new_id_registered(WaylandObjectKind::Registry, reg.clone());
+		let id =
+			self.ctx.borrow_mut().wlim.new_id_registered(WaylandObjectKind::Registry, reg.clone());
 		reg.borrow_mut().id = id;
 		self.wl_get_registry(id)?;
 		Ok(reg)
@@ -43,13 +47,11 @@ impl Display {
 			args: vec![WireArgument::NewId(id)],
 		})
 	}
-	
+
 	pub fn sync(&mut self) -> Result<RcCell<Callback>, Box<dyn Error>> {
 		let cb = Callback::new(self.ctx.clone())?;
-		let id = self.ctx.borrow_mut().wlim.new_id_registered(
-			WaylandObjectKind::Callback,
-			cb.clone(),
-		);
+		let id =
+			self.ctx.borrow_mut().wlim.new_id_registered(WaylandObjectKind::Callback, cb.clone());
 		self.wl_sync(id)?;
 		Ok(cb)
 	}
@@ -88,5 +90,9 @@ impl WaylandObject for Display {
 			}
 		}
 		Ok(())
+	}
+
+	fn as_str(&self) -> &'static str {
+		WaylandObjectKind::Display.as_str()
 	}
 }

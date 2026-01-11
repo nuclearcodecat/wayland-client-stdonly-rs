@@ -1,12 +1,12 @@
 use crate::wayland::wire::{Id, MessageManager};
 use std::{cell::RefCell, collections::HashMap, error::Error, fmt, rc::Rc};
+pub mod buffer;
 pub mod callback;
 pub mod compositor;
 pub mod display;
 pub mod registry;
 pub mod shm;
 pub mod surface;
-pub mod buffer;
 pub mod wire;
 pub mod xdgshell;
 
@@ -14,6 +14,7 @@ pub type OpCode = usize;
 
 pub trait WaylandObject {
 	fn handle(&mut self, opcode: OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>>;
+	fn as_str(&self) -> &'static str;
 }
 
 pub type CtxType = Rc<RefCell<Context>>;
@@ -33,12 +34,16 @@ impl Context {
 
 	pub fn serialize_events(&mut self) -> Result<(), Box<dyn Error>> {
 		println!("serializer called");
-		while self.wlmm.get_events()? == 0 {};
+		let mut retries = 0;
+		while self.wlmm.get_events()? == 0 && retries < 9999 {
+			retries += 1;
+		}
 		while let Some(ev) = self.wlmm.q.pop_front() {
-			let obj = self.wlim.find_obj_by_id(ev.recv_id).ok_or(WaylandError::ObjectNonExistent)?;
+			let obj =
+				self.wlim.find_obj_by_id(ev.recv_id).ok_or(WaylandError::ObjectNonExistent)?;
 			println!("going to handle {:?}", obj.0);
 			obj.1.borrow_mut().handle(ev.opcode, &ev.payload)?;
-		};
+		}
 		Ok(())
 	}
 }
@@ -127,7 +132,9 @@ pub enum WaylandError {
 	IdMapRemovalFail,
 	ObjectNonExistent,
 	InvalidPixelFormat,
-	InvalidOpCode,
+	InvalidOpCode(OpCode, &'static str),
+	NoSerial,
+	InvalidEnumVariant,
 }
 
 impl WaylandError {
@@ -141,13 +148,33 @@ impl fmt::Display for WaylandError {
 		match self {
 			WaylandError::ParseError => write!(f, "parse error"),
 			WaylandError::RecvLenBad => write!(f, "received len is bad"),
-			WaylandError::NotInRegistry => write!(f, "given name was not found in the registry hashmap"),
+			WaylandError::NotInRegistry => {
+				write!(f, "given name was not found in the registry hashmap")
+			}
 			WaylandError::IdMapRemovalFail => write!(f, "failed to remove from id man map"),
 			WaylandError::ObjectNonExistent => write!(f, "object non existent"),
-			WaylandError::InvalidPixelFormat => write!(f, "an invalid pixel format has been received"),
-			WaylandError::InvalidOpCode => write!(f, "an invalid opcode has been received"),
+			WaylandError::InvalidPixelFormat => {
+				write!(f, "an invalid pixel format has been received")
+			}
+			WaylandError::InvalidOpCode(op, int) => write!(f, "an invalid {} opcode has been received on interface {}", op, int),
+			WaylandError::NoSerial => write!(f, "no serial has been found"),
+			WaylandError::InvalidEnumVariant => write!(f, "an invalid enum variant has been received"),
 		}
 	}
 }
 
 impl Error for WaylandError {}
+
+#[macro_export]
+macro_rules! drop {
+	($t:ty) => {
+		impl Drop for $t {
+			fn drop(&mut self) {
+				println!("dropping {}", stringify!($t));
+				if let Err(er) = self.destroy() {
+					eprintln!("err ocurred\n{:#?}", er);
+				};
+			}
+		}
+	};
+}

@@ -1,8 +1,7 @@
-use std::{cell::RefCell, collections::HashMap, error::Error, rc::Rc};
+use std::{collections::HashMap, error::Error};
 
 use crate::wayland::{
-	CtxType, OpCode, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
-	display::Display,
+	CtxType, OpCode, WaylandError, WaylandObject, WaylandObjectKind,
 	wire::{FromWirePayload, Id, WireArgument, WireRequest},
 };
 
@@ -76,9 +75,9 @@ impl WaylandObject for Registry {
 		let p = payload;
 		match opcode {
 			0 => {
-				let name = u32::from_wire(&p[8..])?;
-				let interface = String::from_wire(&p[12..])?;
-				let version = u32::from_wire(&p[..p.len() - 4])?;
+				let name = u32::from_wire(p)?;
+				let interface = String::from_wire(&p[4..])?;
+				let version = u32::from_wire(&p[p.len() - 4..])?;
 				self.inner.insert(
 					name,
 					RegistryEntry {
@@ -86,16 +85,20 @@ impl WaylandObject for Registry {
 						version,
 					},
 				);
+				Ok(())
 			}
 			// can global_remove even happen
 			1 => {
 				// let name = decode_event_payload(&p[8..], WireArgumentKind::UnInt)?;
 				todo!()
 			}
-			_ => {
-				eprintln!("invalid registry event");
+			inv => {
+				Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed())
 			}
-		};
-		Ok(())
+		}
+	}
+
+	fn as_str(&self) -> &'static str {
+		WaylandObjectKind::Registry.as_str()
 	}
 }

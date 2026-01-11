@@ -11,7 +11,8 @@ use wayland_raw::wayland::{
 	compositor::Compositor,
 	display::Display,
 	shm::{PixelFormat, SharedMemory},
-	wire::MessageManager, xdgshell::XdgWmBase,
+	wire::MessageManager,
+	xdgshell::{XdgTopLevel, XdgWmBase},
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -30,16 +31,18 @@ fn main() -> Result<(), Box<dyn Error>> {
 	ctx.borrow_mut().serialize_events()?;
 	let buf = shm_pool.borrow_mut().make_buffer((0, 500, 500, 500), PixelFormat::Xrgb888)?;
 	let xdg_wm_base = XdgWmBase::new_bound(&mut registry.borrow_mut())?;
-	let xdg_surface = xdg_wm_base.borrow_mut().make_xdg_surface(surface.borrow().id)?;
-	let xdg_toplevel = xdg_surface.borrow_mut().make_xdg_toplevel()?;
-	surface.borrow_mut().attach_buffer(buf.borrow().id)?;
+	let xdg_surface = xdg_wm_base.borrow_mut().make_xdg_surface(surface.clone())?;
+	let xdg_toplevel = XdgTopLevel::new_from_xdg_surface(xdg_surface.clone())?;
+	surface.borrow_mut().attach_buffer(buf.clone())?;
 	surface.borrow_mut().commit()?;
-
-	ctx.borrow_mut().serialize_events()?;
-
-	// USE INTERMUT SO SHIT DROPS WHEN PANICKING
-	xdg_wm_base.borrow_mut().destroy()?;
-	buf.borrow_mut().destroy()?;
-	shm_pool.borrow_mut().destroy()?;
+	loop {
+		if xdg_surface.borrow().is_configured {
+			xdg_surface.borrow_mut().ack_configure()?;
+			ctx.borrow_mut().serialize_events()?;
+			break;
+		} else {
+			ctx.borrow_mut().serialize_events()?;
+		}
+	}
 	Ok(())
 }

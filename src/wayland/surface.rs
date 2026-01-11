@@ -1,14 +1,13 @@
 use std::error::Error;
 
 use crate::wayland::{
-	CtxType, WaylandObject,
-	wire::{Id, WireArgument, WireRequest},
+	CtxType, RcCell, WaylandObject, WaylandObjectKind, buffer::Buffer, wire::{Id, WireArgument, WireRequest}
 };
 
 pub struct Surface {
 	pub id: Id,
 	pub(crate) ctx: CtxType,
-	pub(crate) attached_buf: Option<u32>,
+	pub(crate) attached_buf: Option<RcCell<Buffer>>,
 }
 
 impl Surface {
@@ -42,9 +41,9 @@ impl Surface {
 		})
 	}
 
-	pub fn attach_buffer(&mut self, to_att: u32) -> Result<(), Box<dyn Error>> {
-		self.attached_buf = Some(to_att);
-		self.wl_attach(to_att)
+	pub fn attach_buffer(&mut self, to_att: RcCell<Buffer>) -> Result<(), Box<dyn Error>> {
+		self.attached_buf = Some(to_att.clone());
+		self.wl_attach(to_att.borrow().id)
 	}
 
 	pub(crate) fn wl_commit(&self) -> Result<(), Box<dyn Error>> {
@@ -63,5 +62,9 @@ impl Surface {
 impl WaylandObject for Surface {
 	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
 		todo!()
+	}
+
+	fn as_str(&self) -> &'static str {
+		WaylandObjectKind::Surface.as_str()
 	}
 }

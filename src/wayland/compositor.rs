@@ -59,4 +59,8 @@ impl WaylandObject for Compositor {
 	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<(), Box<dyn Error>> {
 		todo!()
 	}
+
+	fn as_str(&self) -> &'static str {
+		WaylandObjectKind::Compositor.as_str()
+	}
 }

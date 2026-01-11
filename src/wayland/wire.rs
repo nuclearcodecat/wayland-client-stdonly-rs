@@ -172,7 +172,7 @@ impl MessageManager {
 			}
 			let opcode = (byte2 & 0x0000ffff) as usize;
 
-			let payload = Vec::from(&b[cursor..cursor + recv_len as usize]);
+			let payload = Vec::from(&b[cursor + 8..cursor + recv_len as usize]);
 
 			let event = WireEventRaw {
 				recv_id: sender_id,
@@ -273,5 +273,28 @@ impl FromWirePayload for u32 {
 	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
 		let p = payload;
 		Ok(u32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
+	}
+}
+
+impl FromWirePayload for i32 {
+	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+		let p = payload;
+		Ok(i32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
+	}
+}
+
+// impl FromWirePayload for Vec<u8> {
+// 	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+// 		let size = u32::from_wire(payload)? as usize;
+// 		let mut vec = vec![0; size];
+// 		vec.extend_from_slice(&payload[4 .. 4 + size]);
+// 		Ok(vec)
+// 	}
+// }
+
+impl FromWirePayload for Vec<u32> {
+	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+		// let size = u32::from_wire(payload)? as usize;
+		payload[4..].chunks(4).map(|chunk| u32::from_wire(chunk)).collect()
 	}
 }
