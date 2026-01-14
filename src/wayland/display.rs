@@ -92,7 +92,7 @@ impl WaylandObject for Display {
 				));
 			}
 			1 => {
-				let deleted_id = u32::from_wire(&payload[8..])?;
+				let deleted_id = u32::from_wire(payload)?;
 				// println!(
 				// 	"==================== ID {:?} GOT DELETED (unimpl)",
 				// 	deleted_id

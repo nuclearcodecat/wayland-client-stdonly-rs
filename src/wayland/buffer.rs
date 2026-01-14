@@ -3,7 +3,9 @@ use std::error::Error;
 use crate::{
 	drop,
 	wayland::{
-		CtxType, DebugLevel, EventAction, OpCode, WaylandError, WaylandObject, WaylandObjectKind, shm::PixelFormat, wire::{Id, WireRequest}
+		CtxType, DebugLevel, EventAction, OpCode, WaylandError, WaylandObject, WaylandObjectKind,
+		shm::PixelFormat,
+		wire::{Id, WireRequest},
 	},
 };
 
@@ -35,15 +37,20 @@ impl Buffer {
 }
 
 impl WaylandObject for Buffer {
-	fn handle(&mut self, opcode: super::OpCode, _payload: &[u8]) -> Result<Vec<EventAction>, Box<dyn Error>> {
+	fn handle(
+		&mut self,
+		opcode: super::OpCode,
+		_payload: &[u8],
+	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {
 			// release
 			0 => {
 				self.in_use = false;
-				pending.push(
-					EventAction::DebugMessage(DebugLevel::Verbose, format!("{} not in use anymore", self.as_str()))
-				)
+				pending.push(EventAction::DebugMessage(
+					DebugLevel::Verbose,
+					format!("{} not in use anymore", self.as_str()),
+				))
 			}
 			inv => return Err(WaylandError::InvalidOpCode(inv as OpCode, self.as_str()).boxed()),
 		};

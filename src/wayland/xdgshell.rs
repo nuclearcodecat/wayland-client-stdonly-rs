@@ -3,7 +3,10 @@ use std::{cell::RefCell, error::Error, rc::Rc};
 use crate::{
 	drop,
 	wayland::{
-		CtxType, DebugLevel, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind, registry::Registry, surface::Surface, wire::{FromWirePayload, Id, WireArgument, WireRequest}
+		CtxType, DebugLevel, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+		registry::Registry,
+		surface::Surface,
+		wire::{FromWirePayload, Id, WireArgument, WireRequest},
 	},
 };
 
@@ -28,12 +31,18 @@ impl XdgWmBase {
 		Ok(obj)
 	}
 
-	pub(crate) fn wl_destroy(&self) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+	pub(crate) fn wl_destroy(&self) -> Result<WireRequest, Box<dyn Error>> {
+		Ok(WireRequest {
 			sender_id: self.id,
 			opcode: 0,
 			args: vec![],
 		})
+	}
+
+	pub fn destroy(&self) -> Result<(), Box<dyn Error>> {
+		self.ctx.borrow().wlmm.send_request(&mut self.wl_destroy()?)?;
+		self.ctx.borrow_mut().wlim.free_id(self.id)?;
+		Ok(())
 	}
 
 	pub(crate) fn wl_pong(&self, serial: u32) -> Result<WireRequest, Box<dyn Error>> {
@@ -44,18 +53,16 @@ impl XdgWmBase {
 		})
 	}
 
-	pub fn destroy(&self) -> Result<(), Box<dyn Error>> {
-		self.wl_destroy()?;
-		self.ctx.borrow_mut().wlim.free_id(self.id)?;
-		Ok(())
+	pub fn pong(&self, serial: u32) -> Result<(), Box<dyn Error>> {
+		self.ctx.borrow().wlmm.send_request(&mut self.wl_pong(serial)?)
 	}
 
 	pub(crate) fn wl_get_xdg_surface(
 		&self,
 		wl_surface_id: Id,
 		xdg_surface_id: Id,
-	) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+	) -> Result<WireRequest, Box<dyn Error>> {
+		Ok(WireRequest {
 			sender_id: self.id,
 			opcode: 2,
 			args: vec![WireArgument::NewId(xdg_surface_id), WireArgument::Obj(wl_surface_id)],
@@ -78,7 +85,10 @@ impl XdgWmBase {
 			.borrow_mut()
 			.wlim
 			.new_id_registered(WaylandObjectKind::XdgSurface, xdgs.clone());
-		self.wl_get_xdg_surface(wl_surface.borrow().id, id)?;
+		self.ctx
+			.borrow()
+			.wlmm
+			.send_request(&mut self.wl_get_xdg_surface(wl_surface.borrow().id, id)?)?;
 		xdgs.borrow_mut().id = id;
 		Ok(xdgs)
 	}
@@ -101,20 +111,12 @@ impl XdgSurface {
 		})
 	}
 
-	pub(crate) fn wl_ack_configure(&self, serial: u32) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+	pub(crate) fn wl_ack_configure(&self, serial: u32) -> Result<WireRequest, Box<dyn Error>> {
+		Ok(WireRequest {
 			sender_id: self.id,
 			opcode: 4,
 			args: vec![WireArgument::UnInt(serial)],
 		})
-	}
-
-	pub fn ack_configure(&self) -> Result<(), Box<dyn Error>> {
-		if let Some(serial) = self.conf_serial {
-			self.wl_ack_configure(serial)
-		} else {
-			Err(WaylandError::NoSerial.boxed())
-		}
 	}
 }
 
@@ -148,34 +150,30 @@ impl XdgTopLevel {
 		Ok(xdgtl)
 	}
 
-	pub(crate) fn wl_set_app_id(&self, id: String) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+	pub(crate) fn wl_set_app_id(&self, id: String) -> Result<WireRequest, Box<dyn Error>> {
+		Ok(WireRequest {
 			sender_id: self.id,
 			opcode: 3,
-			args: vec![
-				WireArgument::String(id)
-			],
+			args: vec![WireArgument::String(id)],
 		})
 	}
 
 	pub fn set_app_id(&mut self, id: String) -> Result<(), Box<dyn Error>> {
 		self.appid = Some(id.clone());
-		self.wl_set_app_id(id)
+		self.ctx.borrow().wlmm.send_request(&mut self.wl_set_app_id(id)?)
 	}
 
-	pub(crate) fn wl_set_title(&self, id: String) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+	pub(crate) fn wl_set_title(&self, id: String) -> Result<WireRequest, Box<dyn Error>> {
+		Ok(WireRequest {
 			sender_id: self.id,
 			opcode: 2,
-			args: vec![
-				WireArgument::String(id)
-			],
+			args: vec![WireArgument::String(id)],
 		})
 	}
 
 	pub fn set_title(&mut self, id: String) -> Result<(), Box<dyn Error>> {
 		self.title = Some(id.clone());
-		self.wl_set_title(id)
+		self.ctx.borrow().wlmm.send_request(&mut self.wl_set_title(id)?)
 	}
 }
 
@@ -198,14 +196,18 @@ enum XdgTopLevelStates {
 }
 
 impl WaylandObject for XdgWmBase {
-	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<Vec<EventAction>, Box<dyn Error>> {
+	fn handle(
+		&mut self,
+		opcode: super::OpCode,
+		payload: &[u8],
+	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {
 			// ping
 			0 => {
 				let serial = u32::from_wire(payload)?;
 				pending.push(EventAction::Request(self.wl_pong(serial)?));
-			},
+			}
 			inv => return Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed()),
 		}
 		Ok(pending)
@@ -217,12 +219,18 @@ impl WaylandObject for XdgWmBase {
 }
 
 impl WaylandObject for XdgSurface {
-	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<Vec<EventAction>, Box<dyn Error>> {
+	fn handle(
+		&mut self,
+		opcode: super::OpCode,
+		payload: &[u8],
+	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {
 			// configure
 			0 => {
+				self.is_configured = true;
 				let serial = u32::from_wire(payload)?;
+				pending.push(EventAction::Request(self.wl_ack_configure(serial)?));
 			}
 			inv => return Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed()),
 		}
@@ -235,7 +243,11 @@ impl WaylandObject for XdgSurface {
 }
 
 impl WaylandObject for XdgTopLevel {
-	fn handle(&mut self, opcode: super::OpCode, payload: &[u8]) -> Result<Vec<EventAction>, Box<dyn Error>> {
+	fn handle(
+		&mut self,
+		opcode: super::OpCode,
+		payload: &[u8],
+	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {
 			// configure
@@ -252,9 +264,16 @@ impl WaylandObject for XdgTopLevel {
 						}
 					})
 					.collect::<Result<Vec<_>, _>>()?;
-				pending.push(
-					EventAction::DebugMessage(DebugLevel::Verbose, format!("{} configure // w: {}, h: {}, states: {:?}", self.as_str(), w, h, states))
-				);
+				pending.push(EventAction::DebugMessage(
+					DebugLevel::Verbose,
+					format!(
+						"{} configure // w: {}, h: {}, states: {:?}",
+						self.as_str(),
+						w,
+						h,
+						states
+					),
+				));
 			}
 			// close
 			1 => {

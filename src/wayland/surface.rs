@@ -3,6 +3,8 @@ use std::error::Error;
 use crate::wayland::{
 	CtxType, EventAction, RcCell, WaylandObject, WaylandObjectKind,
 	buffer::Buffer,
+	callback::Callback,
+	region::Region,
 	wire::{Id, WireArgument, WireRequest},
 };
 
@@ -58,6 +60,37 @@ impl Surface {
 
 	pub fn commit(&self) -> Result<(), Box<dyn Error>> {
 		self.wl_commit()
+	}
+
+	pub(crate) fn wl_damage_buffer(&self, region: Region) -> Result<WireRequest, Box<dyn Error>> {
+		Ok(WireRequest {
+			sender_id: self.id,
+			opcode: 9,
+			args: vec![
+				WireArgument::Int(region.x),
+				WireArgument::Int(region.y),
+				WireArgument::Int(region.w),
+				WireArgument::Int(region.h),
+			],
+		})
+	}
+
+	pub fn damage_buffer(&self, region: Region) -> Result<(), Box<dyn Error>> {
+		self.ctx.borrow().wlmm.send_request(&mut self.wl_damage_buffer(region)?)
+	}
+
+	pub(crate) fn wl_frame(&self, id: Id) -> Result<WireRequest, Box<dyn Error>> {
+		Ok(WireRequest {
+			sender_id: self.id,
+			opcode: 3,
+			args: vec![WireArgument::NewId(id)],
+		})
+	}
+
+	pub fn frame(&self) -> Result<RcCell<Callback>, Box<dyn Error>> {
+		let cb = Callback::new(self.ctx.clone())?;
+		self.ctx.borrow().wlmm.send_request(&mut self.wl_frame(cb.borrow().id)?)?;
+		Ok(cb)
 	}
 }
 

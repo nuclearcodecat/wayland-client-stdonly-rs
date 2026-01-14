@@ -1,10 +1,15 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
-use crate::wayland::{CtxType, EventAction, RcCell, WaylandObject, WaylandObjectKind, wire::Id};
+use crate::wayland::{
+	CtxType, DebugLevel, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+	wire::{FromWirePayload, Id},
+};
 
 pub struct Callback {
 	pub(crate) id: Id,
 	pub(crate) ctx: CtxType,
+	pub done: bool,
+	pub data: Option<u32>,
 }
 
 impl Callback {
@@ -12,6 +17,8 @@ impl Callback {
 		let cb = Rc::new(RefCell::new(Self {
 			id: 0,
 			ctx: ctx.clone(),
+			done: false,
+			data: None,
 		}));
 		let id =
 			ctx.borrow_mut().wlim.new_id_registered(super::WaylandObjectKind::Callback, cb.clone());
@@ -26,7 +33,22 @@ impl WaylandObject for Callback {
 		opcode: super::OpCode,
 		payload: &[u8],
 	) -> Result<Vec<EventAction>, Box<dyn std::error::Error>> {
-		todo!()
+		let mut pending = vec![];
+		match opcode {
+			0 => {
+				let data = u32::from_wire(payload)?;
+				self.done = true;
+				self.data = Some(data);
+				pending.push(EventAction::DebugMessage(
+					DebugLevel::Verbose,
+					format!("callback {} done with data {}", self.id, data),
+				));
+			}
+			inv => {
+				return Err(WaylandError::InvalidOpCode(inv, self.as_str()).boxed());
+			}
+		}
+		Ok(pending)
 	}
 
 	fn as_str(&self) -> &'static str {

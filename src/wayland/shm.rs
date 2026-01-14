@@ -1,4 +1,12 @@
-use std::{cell::RefCell, collections::HashSet, error::Error, ffi::CString, os::{fd::RawFd, raw::c_void}, ptr::{self, null_mut}, rc::Rc};
+use std::{
+	cell::RefCell,
+	collections::HashSet,
+	error::Error,
+	ffi::CString,
+	os::{fd::RawFd, raw::c_void},
+	ptr::{self, null_mut},
+	rc::Rc,
+};
 // std depends on libc anyway so i consider using it fair
 // i may replace this with asm in the future but that means amd64 only
 use crate::{
@@ -10,7 +18,10 @@ use crate::{
 		wire::{FromWirePayload, Id, WireArgument, WireRequest},
 	},
 };
-use libc::{MAP_FAILED, MAP_SHARED, O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, ftruncate, mmap, munmap, shm_open, shm_unlink};
+use libc::{
+	MAP_FAILED, MAP_SHARED, O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, ftruncate, mmap, munmap,
+	shm_open, shm_unlink,
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -76,7 +87,8 @@ impl SharedMemory {
 			.new_id_registered(WaylandObjectKind::SharedMemoryPool, shmpool.clone());
 		shmpool.borrow_mut().id = id;
 
-		let ptr = unsafe { mmap(null_mut(), size as usize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) };
+		let ptr =
+			unsafe { mmap(null_mut(), size as usize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) };
 		if ptr == MAP_FAILED {
 			return Err(Box::new(std::io::Error::last_os_error()));
 		} else {

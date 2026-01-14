@@ -10,6 +10,7 @@ pub mod buffer;
 pub mod callback;
 pub mod compositor;
 pub mod display;
+pub mod region;
 pub mod registry;
 pub mod shm;
 pub mod surface;
@@ -89,15 +90,15 @@ impl Context {
 			println!("going to handle {:?}", obj.0);
 			let mut x = obj.1.borrow_mut().handle(ev.opcode, &ev.payload)?;
 			actions.append(&mut x);
-		};
+		}
 		for act in actions {
 			match act {
 				EventAction::Request(mut msg) => {
 					self.wlmm.send_request(&mut msg)?;
-				},
+				}
 				EventAction::IdDeletion(id) => {
 					self.wlim.free_id(id)?;
-				},
+				}
 				// add colors
 				EventAction::Error(er) => eprintln!("{:?}", er),
 				// add colors
