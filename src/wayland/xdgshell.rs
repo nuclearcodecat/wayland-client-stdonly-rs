@@ -1,13 +1,10 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
-use crate::{
-	drop,
-	wayland::{
-		CtxType, DebugLevel, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
-		registry::Registry,
-		surface::Surface,
-		wire::{FromWirePayload, Id, WireArgument, WireRequest},
-	},
+use crate::wayland::{
+	CtxType, DebugLevel, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+	registry::Registry,
+	surface::Surface,
+	wire::{FromWirePayload, Id, WireArgument, WireRequest},
 };
 
 pub struct XdgWmBase {
@@ -132,8 +129,8 @@ impl XdgTopLevel {
 	pub fn new_from_xdg_surface(
 		xdg_surface: RcCell<XdgSurface>,
 		ctx: CtxType,
-	) -> Result<RcCell<XdgTopLevel>, Box<dyn Error>> {
-		let xdgtl = Rc::new(RefCell::new(XdgTopLevel {
+	) -> Result<RcCell<Self>, Box<dyn Error>> {
+		let xdgtl = Rc::new(RefCell::new(Self {
 			id: 0,
 			ctx: ctx.clone(),
 			parent: xdg_surface.clone(),
@@ -296,5 +293,3 @@ impl WaylandObject for XdgTopLevel {
 		WaylandObjectKind::XdgTopLevel.as_str()
 	}
 }
-
-drop!(XdgWmBase);

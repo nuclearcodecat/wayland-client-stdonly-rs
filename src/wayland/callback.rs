@@ -25,6 +25,10 @@ impl Callback {
 		cb.borrow_mut().id = id;
 		Ok(cb)
 	}
+
+	pub(crate) fn destroy(&self) -> Result<(), Box<dyn Error>> {
+		self.ctx.borrow_mut().wlim.free_id(self.id)
+	}
 }
 
 impl WaylandObject for Callback {

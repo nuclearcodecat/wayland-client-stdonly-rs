@@ -1,7 +1,17 @@
-use std::{cell::RefCell, env, error::Error, rc::Rc, time::Duration};
+// TODO
+// - read up on Weak because i think i'm doing Rc stuff wrong
+
+use std::{cell::RefCell, env, error::Error, rc::Rc};
 
 use wayland_raw::wayland::{
-	Context, IdentManager, RcCell, buffer::Buffer, callback::Callback, compositor::Compositor, display::Display, shm::{PixelFormat, SharedMemory}, wire::MessageManager, xdgshell::{XdgTopLevel, XdgWmBase}
+	Context, IdentManager, RcCell,
+	buffer::Buffer,
+	callback::Callback,
+	compositor::Compositor,
+	display::Display,
+	shm::{PixelFormat, SharedMemory},
+	wire::MessageManager,
+	xdgshell::{XdgTopLevel, XdgWmBase},
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -19,14 +29,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let compositor = Compositor::new_bound(&mut registry.borrow_mut(), ctx.clone())?;
 	let surface = compositor.borrow_mut().make_surface()?;
 	let shm = SharedMemory::new_bound_initialized(&mut registry.borrow_mut(), ctx.clone())?;
-	let shm_pool = shm.borrow_mut().make_pool(W * H * 4)?;
+	let pf = PixelFormat::Xrgb888;
+	let shm_pool = shm.borrow_mut().make_pool(W * H * pf.width() as i32)?;
 	ctx.borrow_mut().handle_events()?;
-	let buf = Buffer::new_initalized(shm_pool.clone(), (0, W, H, W), PixelFormat::Xrgb888, ctx.clone())?;
 	let xdg_wm_base = XdgWmBase::new_bound(&mut registry.borrow_mut())?;
 	let xdg_surface = xdg_wm_base.borrow_mut().make_xdg_surface(surface.clone(), (W, H))?;
 	let xdg_toplevel = XdgTopLevel::new_from_xdg_surface(xdg_surface.clone(), ctx.clone())?;
 	xdg_toplevel.borrow_mut().set_app_id(String::from("wayland-raw-appid"))?;
 	xdg_toplevel.borrow_mut().set_title(String::from("wayland-raw-title"))?;
+
+	let buf = Buffer::new_initalized(shm_pool.clone(), (0, W, H), pf, ctx.clone())?;
 	surface.borrow_mut().attach_buffer_obj(buf.clone())?;
 	surface.borrow_mut().commit()?;
 	let mut frame: usize = 0;
@@ -36,7 +48,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 		ctx.borrow_mut().handle_events()?;
 
 		if xdg_surface.borrow().is_configured {
-			println!("looping");
 			let ready = match &cb.clone() {
 				Some(cb) => cb.borrow().done,
 				None => true,
@@ -50,6 +61,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 				unsafe {
 					let slice = &mut *shm_pool.borrow_mut().slice.unwrap();
+					println!("! main ! slice len: {}", slice.len());
 					frame = frame.wrapping_add(1);
 
 					for pixel in slice.chunks_mut(4) {
@@ -62,8 +74,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 				surface.borrow_mut().repaint()?;
 				surface.borrow_mut().commit()?;
 			}
-		} else {
-			std::thread::sleep(Duration::from_millis(100));
 		}
 	}
 }

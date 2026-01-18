@@ -9,17 +9,13 @@ use std::{
 };
 // std depends on libc anyway so i consider using it fair
 // i may replace this with asm in the future but that means amd64 only
-use crate::{
-	drop,
-	wayland::{
-		CtxType, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
-		buffer::Buffer,
-		registry::Registry,
-		wire::{FromWirePayload, Id, WireArgument, WireRequest},
-	},
+use crate::wayland::{
+	CtxType, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+	registry::Registry,
+	wire::{FromWirePayload, Id, WireArgument, WireRequest},
 };
 use libc::{
-	MAP_FAILED, MAP_SHARED, O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, ftruncate, mmap, munmap,
+	MAP_FAILED, MAP_SHARED, O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, close, ftruncate, mmap, munmap,
 	shm_open, shm_unlink,
 };
 
@@ -39,7 +35,7 @@ impl PixelFormat {
 		}
 	}
 
-	pub(crate) fn width(&self) -> usize {
+	pub fn width(&self) -> usize {
 		match self {
 			Self::Argb888 => 4,
 			Self::Xrgb888 => 4,
@@ -82,11 +78,16 @@ impl SharedMemory {
 		// add method to get new names
 		let name = CString::new("wl-shm-1")?;
 		let fd = unsafe { shm_open(name.as_ptr(), O_RDWR | O_CREAT, 0) };
+		if fd == -1 {
+			return Err(Box::new(std::io::Error::last_os_error()));
+		}
 		println!("fd: {}", fd);
-		unsafe { ftruncate(fd, size.into()) };
+		if unsafe { ftruncate(fd, size.into()) } == -1 {
+			return Err(Box::new(std::io::Error::last_os_error()));
+		}
 
 		let shmpool =
-			Rc::new(RefCell::new(SharedMemoryPool::new(0, self.ctx.clone(), name, fd, size)));
+			Rc::new(RefCell::new(SharedMemoryPool::new(0, self.ctx.clone(), name, size, fd)));
 		let id = self
 			.ctx
 			.borrow_mut()
@@ -147,8 +148,8 @@ impl SharedMemoryPool {
 		id: Id,
 		(offset, width, height, stride): (i32, i32, i32, i32),
 		format: PixelFormat,
-	) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+	) -> WireRequest {
+		WireRequest {
 			sender_id: self.id,
 			opcode: 0,
 			args: vec![
@@ -159,7 +160,7 @@ impl SharedMemoryPool {
 				WireArgument::Int(stride),
 				WireArgument::UnInt(format as u32),
 			],
-		})
+		}
 	}
 
 	pub(crate) fn unmap(&self) -> Result<(), std::io::Error> {
@@ -188,28 +189,41 @@ impl SharedMemoryPool {
 		}
 	}
 
+	fn close(&self) -> Result<(), std::io::Error> {
+		let r = unsafe { close(self.fd) };
+		if r == 0 {
+			Ok(())
+		} else {
+			Err(std::io::Error::last_os_error())
+		}
+	}
+
 	pub fn destroy(&self) -> Result<(), Box<dyn Error>> {
 		self.wl_destroy()?;
 		self.ctx.borrow_mut().wlim.free_id(self.id)?;
-		self.unlink()?;
 		self.unmap()?;
+		self.unlink()?;
+		self.close()?;
 		Ok(())
 	}
 
 	pub(crate) fn update_ptr(&mut self) -> Result<(), Box<dyn Error>> {
-		let ptr =
-			unsafe { mmap(null_mut(), self.size as usize, PROT_READ | PROT_WRITE, MAP_SHARED, self.fd, 0) };
-		if ptr == MAP_FAILED {
-			return Err(Box::new(std::io::Error::last_os_error()));
-		} else {
-			let x: *mut [u8] = ptr::slice_from_raw_parts_mut(ptr as *mut u8, self.size as usize);
-			self.ptr = Some(ptr);
-			self.slice = Some(x);
+		let ptr = unsafe {
+			mmap(null_mut(), self.size as usize, PROT_READ | PROT_WRITE, MAP_SHARED, self.fd, 0)
 		};
+		if ptr == MAP_FAILED {
+			eprintln!("FAILED IN UPDATE_PTR");
+			return Err(Box::new(std::io::Error::last_os_error()));
+		}
+
+		let x: *mut [u8] = ptr::slice_from_raw_parts_mut(ptr as *mut u8, self.size as usize);
+		self.ptr = Some(ptr);
+		self.slice = Some(x);
 		Ok(())
 	}
 
 	pub fn resize(&mut self, size: i32) -> Result<(), Box<dyn Error>> {
+		println!("! shm pool ! RESIZE size {size}");
 		if let Some(old_ptr) = self.ptr {
 			let r = unsafe { munmap(old_ptr, self.size as usize) };
 			if r != 0 {
@@ -275,5 +289,3 @@ impl WaylandObject for SharedMemoryPool {
 		WaylandObjectKind::SharedMemoryPool.as_str()
 	}
 }
-
-drop!(SharedMemoryPool);

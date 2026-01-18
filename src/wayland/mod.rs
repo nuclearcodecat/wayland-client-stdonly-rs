@@ -4,7 +4,8 @@ use crate::wayland::{
 };
 use std::{
 	cell::RefCell,
-	collections::HashMap,
+	collections::{HashMap, VecDeque},
+	env,
 	error::Error,
 	fmt::{self, Display},
 	rc::Rc,
@@ -92,7 +93,7 @@ impl Context {
 		let mut actions: Vec<EventAction> = vec![];
 		while let Some(ev) = self.wlmm.q.pop_front() {
 			let obj = self.wlim.find_obj_by_id(ev.recv_id)?;
-			println!("going to handle {:?}", obj.0);
+			println!("! event handler ! going to handle {:?}", obj.0);
 			let mut x = obj.1.borrow_mut().handle(ev.opcode, &ev.payload)?;
 			actions.append(&mut x);
 		}
@@ -102,19 +103,31 @@ impl Context {
 					self.wlmm.send_request(&mut msg)?;
 				}
 				EventAction::IdDeletion(id) => {
+					println!("! event handler ! id {} deleted internally", id);
 					self.wlim.free_id(id)?;
 				}
 				// add colors
 				EventAction::Error(er) => eprintln!("{:?}", er),
 				// add colors
-				EventAction::DebugMessage(_, msg) => println!("{msg}"),
+				EventAction::DebugMessage(lvl, msg) => {
+					// dont read every time stupid
+					if env::var("DEBUGLVL")? <= (lvl as usize).to_string() {
+						println!("! event handler !\n{msg}")
+					}
+				}
 				EventAction::Resize(w, h) => {
 					let xdgs = self.xdg_surface.clone().ok_or(WaylandError::ObjectNonExistent)?;
 					let xdgs = xdgs.borrow_mut();
 					let surf = xdgs.wl_surface.borrow_mut();
-					let buf = surf.attached_buf.clone().ok_or(WaylandError::ObjectNonExistent)?;
-					let mut buf = buf.borrow_mut();
-					buf.resize((w, h))?;
+					let buf_ = surf.attached_buf.clone().ok_or(WaylandError::ObjectNonExistent)?;
+					let mut buf = buf_.borrow_mut();
+					println!("! event handler ! calling resize, w: {}, h: {}", w, h);
+					let new_buf_id = self.wlim.new_id_registered(WaylandObjectKind::Buffer, buf_.clone());
+					let reqs = buf.resize(new_buf_id, (w, h))?;
+					// possibly recursive
+					for mut req in reqs {
+						self.wlmm.send_request(&mut req)?;
+					}
 				}
 			};
 		}
@@ -162,7 +175,7 @@ pub type RcCell<T> = Rc<RefCell<T>>;
 #[derive(Default)]
 pub struct IdentManager {
 	top_id: Id,
-	free: Vec<Id>,
+	free: VecDeque<Id>,
 	idmap: HashMap<Id, (WaylandObjectKind, Wlto)>,
 }
 
@@ -174,17 +187,19 @@ impl IdentManager {
 	}
 
 	pub(crate) fn new_id_registered(&mut self, kind: WaylandObjectKind, obj: Wlto) -> Id {
-		let id = self.new_id();
+		let id = self.free.pop_front().unwrap_or_else(|| self.new_id());
 		self.idmap.insert(id, (kind, obj));
 		id
 	}
 
 	pub(crate) fn free_id(&mut self, id: Id) -> Result<(), Box<dyn Error>> {
+		println!("! idman ! freeing id {}", id);
+		println!("! idman ! list of free id's: {:?}", self.free);
 		let registered = self.idmap.iter().find(|(k, _)| **k == id).map(|(k, _)| k).copied();
 		if let Some(r) = registered {
 			self.idmap.remove(&r).ok_or(WaylandError::IdMapRemovalFail.boxed())?;
 		}
-		self.free.push(id);
+		self.free.push_back(id);
 		Ok(())
 	}
 
@@ -197,23 +212,7 @@ impl IdentManager {
 			.iter()
 			.find(|(k, _)| **k == id)
 			.map(|(_, v)| v)
-			.ok_or_else(|| WaylandError::ObjectNonExistent)
-	}
-
-	pub(crate) fn find_obj_kind_by_id(&self, id: Id) -> Result<WaylandObjectKind, WaylandError> {
-		self.idmap
-			.iter()
-			.find(|(k, _)| **k == id)
-			.map(|(_, v)| v.0)
-			.ok_or_else(|| WaylandError::ObjectNonExistent)
-	}
-
-	pub(crate) fn find_obj_by_kind(&self, kind: WaylandObjectKind) -> Result<Wlto, WaylandError> {
-		self.idmap
-			.iter()
-			.find(|(_, v)| v.0 == kind)
-			.map(|(_, v)| v.1.clone())
-			.ok_or_else(|| WaylandError::ObjectNonExistent)
+			.ok_or(WaylandError::ObjectNonExistent)
 	}
 }
 
@@ -265,17 +264,3 @@ impl fmt::Display for WaylandError {
 }
 
 impl Error for WaylandError {}
-
-#[macro_export]
-macro_rules! drop {
-	($t:ty) => {
-		impl Drop for $t {
-			fn drop(&mut self) {
-				println!("dropping {}", stringify!($t));
-				if let Err(er) = self.destroy() {
-					eprintln!("err ocurred\n{:#?}", er);
-				};
-			}
-		}
-	};
-}

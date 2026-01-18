@@ -92,7 +92,7 @@ impl MessageManager {
 	}
 
 	pub fn send_request(&self, msg: &mut WireRequest) -> Result<(), Box<dyn Error>> {
-		println!("==== SEND_REQUEST CALLED");
+		// println!("==== SEND_REQUEST CALLED");
 		let mut buf: Vec<u8> = vec![];
 		buf.append(&mut Vec::from(msg.sender_id.to_ne_bytes()));
 		buf.append(&mut vec![0, 0, 0, 0]);
@@ -112,7 +112,7 @@ impl MessageManager {
 			}
 		}
 		let word2 = (buf.len() << 16) as u32 | (msg.opcode as u32 & 0x0000ffffu32);
-		println!("=== WORD2\n0b{:0b}\nlen: {}\nopcode: {}", word2, word2 >> 16, word2 & 0x0000ffff);
+		// println!("=== WORD2\n0b{:0b}\nlen: {}\nopcode: {}", word2, word2 >> 16, word2 & 0x0000ffff);
 		let word2 = word2.to_ne_bytes();
 		for (en, ix) in (4..=7).enumerate() {
 			buf[ix] = word2[en];
@@ -122,14 +122,14 @@ impl MessageManager {
 		ancillary.add_fds(&fds);
 		self.sock.send_vectored_with_ancillary(&[IoSlice::new(&buf)], &mut ancillary)?;
 		// self.sock.write_all(&buf)?;
-		println!(
-			// "=== REQUEST SENT\n{:#?}\n{:?}\nbuf len: {}\naux: {:?}\n\n",
-			"=== REQUEST SENT\n{:#?}\n{:?}\nbuf len: {}\n\n",
-			msg,
-			buf,
-			buf.len(),
-			// ancillary
-		);
+		// println!(
+		// 	// "=== REQUEST SENT\n{:#?}\n{:?}\nbuf len: {}\naux: {:?}\n\n",
+		// 	"=== REQUEST SENT\n{:#?}\n{:?}\nbuf len: {}\n\n",
+		// 	msg,
+		// 	buf,
+		// 	buf.len(),
+		// 	// ancillary
+		// );
 		Ok(())
 	}
 
