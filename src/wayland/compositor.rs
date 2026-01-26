@@ -1,10 +1,7 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::wayland::{
-	CtxType, EventAction, RcCell, WaylandObject, WaylandObjectKind,
-	registry::Registry,
-	surface::Surface,
-	wire::{Id, WireArgument, WireRequest},
+	Context, CtxType, EventAction, ExpectRc, RcCell, WaylandObject, WaylandObjectKind, registry::Registry, surface::Surface, wire::{Id, WireArgument, WireRequest}
 };
 
 pub struct Compositor {
@@ -22,9 +19,9 @@ impl Compositor {
 
 	pub fn new_bound(
 		registry: &mut Registry,
-		ctx: CtxType,
+		ctx: RcCell<Context>,
 	) -> Result<RcCell<Self>, Box<dyn Error>> {
-		let compositor = Rc::new(RefCell::new(Self::new(0, ctx.clone())));
+		let compositor = Rc::new(RefCell::new(Self::new(0, Rc::downgrade(&ctx))));
 		let id = ctx
 			.borrow_mut()
 			.wlim
@@ -34,23 +31,21 @@ impl Compositor {
 		Ok(compositor)
 	}
 
-	fn wl_create_surface(&self, id: Id) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+	fn wl_create_surface(&self, id: Id) -> WireRequest {
+		WireRequest {
 			sender_id: self.id,
 			opcode: 0,
 			args: vec![WireArgument::UnInt(id)],
-		})
+		}
 	}
 
 	pub fn make_surface(&self) -> Result<RcCell<Surface>, Box<dyn Error>> {
 		let surface = Rc::new(RefCell::new(Surface::new(0, self.ctx.clone())));
-		let id = self
-			.ctx
-			.borrow_mut()
-			.wlim
-			.new_id_registered(WaylandObjectKind::Surface, surface.clone());
+		let ctx = self.ctx.upgrade().to_wl_err()?;
+		let mut ctx = ctx.borrow_mut();
+		let id = ctx.wlim.new_id_registered(WaylandObjectKind::Surface, surface.clone());
 		surface.borrow_mut().id = id;
-		self.wl_create_surface(id)?;
+		ctx.wlmm.send_request(&mut self.wl_create_surface(id))?;
 		Ok(surface)
 	}
 }
@@ -58,8 +53,8 @@ impl Compositor {
 impl WaylandObject for Compositor {
 	fn handle(
 		&mut self,
-		opcode: super::OpCode,
-		payload: &[u8],
+		_opcode: super::OpCode,
+		_payload: &[u8],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		todo!()
 	}

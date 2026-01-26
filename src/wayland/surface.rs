@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use crate::wayland::{
-	CtxType, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+	CtxType, EventAction, ExpectRc, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
 	buffer::Buffer,
 	callback::Callback,
 	region::Region,
@@ -23,18 +23,18 @@ impl Surface {
 		}
 	}
 
-	pub(crate) fn wl_destroy(&self) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+	pub(crate) fn wl_destroy(&self) -> WireRequest {
+		WireRequest {
 			sender_id: self.id,
 			opcode: 0,
 			args: vec![],
-		})
+		}
 	}
 
 	pub fn destroy(&self) -> Result<(), Box<dyn Error>> {
-		self.wl_destroy()?;
-		self.ctx.borrow_mut().wlim.free_id(self.id)?;
-		Ok(())
+		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_destroy())
+		// id should be freed by the compositor
+		// self.ctx.borrow_mut().wlim.free_id(self.id)?;
 	}
 
 	pub(crate) fn wl_attach(&self, buf_id: Id) -> Result<WireRequest, Box<dyn Error>> {
@@ -52,7 +52,12 @@ impl Surface {
 
 	pub fn attach_buffer(&mut self) -> Result<(), Box<dyn Error>> {
 		let buf = self.attached_buf.clone().ok_or(WaylandError::BufferObjectNotAttached)?;
-		self.ctx.borrow().wlmm.send_request(&mut self.wl_attach(buf.borrow().id)?)
+		self.ctx
+			.upgrade()
+			.to_wl_err()?
+			.borrow()
+			.wlmm
+			.send_request(&mut self.wl_attach(buf.borrow().id)?)
 	}
 
 	pub(crate) fn wl_commit(&self) -> WireRequest {
@@ -64,7 +69,7 @@ impl Surface {
 	}
 
 	pub fn commit(&self) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut self.wl_commit())
+		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_commit())
 	}
 
 	pub(crate) fn wl_damage_buffer(&self, region: Region) -> Result<WireRequest, Box<dyn Error>> {
@@ -81,18 +86,25 @@ impl Surface {
 	}
 
 	pub fn damage_buffer(&self, region: Region) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut self.wl_damage_buffer(region)?)
+		self.ctx
+			.upgrade()
+			.to_wl_err()?
+			.borrow()
+			.wlmm
+			.send_request(&mut self.wl_damage_buffer(region)?)
 	}
 
 	pub fn repaint(&self) -> Result<(), Box<dyn Error>> {
 		if let Some(buf) = &self.attached_buf {
 			let buf = buf.borrow();
-			self.ctx.borrow().wlmm.send_request(&mut self.wl_damage_buffer(Region {
-				x: 0,
-				y: 0,
-				w: buf.width,
-				h: buf.height,
-			})?)?;
+			self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(
+				&mut self.wl_damage_buffer(Region {
+					x: 0,
+					y: 0,
+					w: buf.width,
+					h: buf.height,
+				})?,
+			)?;
 		};
 		Ok(())
 	}
@@ -107,7 +119,12 @@ impl Surface {
 
 	pub fn frame(&self) -> Result<RcCell<Callback>, Box<dyn Error>> {
 		let cb = Callback::new(self.ctx.clone())?;
-		self.ctx.borrow().wlmm.send_request(&mut self.wl_frame(cb.borrow().id)?)?;
+		self.ctx
+			.upgrade()
+			.to_wl_err()?
+			.borrow()
+			.wlmm
+			.send_request(&mut self.wl_frame(cb.borrow().id)?)?;
 		Ok(cb)
 	}
 }
@@ -115,8 +132,8 @@ impl Surface {
 impl WaylandObject for Surface {
 	fn handle(
 		&mut self,
-		opcode: super::OpCode,
-		payload: &[u8],
+		_opcode: super::OpCode,
+		_payload: &[u8],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		todo!()
 	}

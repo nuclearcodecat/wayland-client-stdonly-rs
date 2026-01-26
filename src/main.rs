@@ -1,16 +1,15 @@
 // TODO
 // - read up on Weak because i think i'm doing Rc stuff wrong
 
-use std::{cell::RefCell, env, error::Error, rc::Rc};
+use std::{cell::RefCell, error::Error, rc::Rc};
 
 use wayland_raw::wayland::{
-	Context, IdentManager, RcCell,
+	Context, RcCell,
 	buffer::Buffer,
 	callback::Callback,
 	compositor::Compositor,
 	display::Display,
 	shm::{PixelFormat, SharedMemory},
-	wire::MessageManager,
 	xdgshell::{XdgTopLevel, XdgWmBase},
 };
 
@@ -18,12 +17,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 	const W: i32 = 500;
 	const H: i32 = 900;
 
-	let wlim = IdentManager::default();
-	let wlmm = MessageManager::new(&env::var("WAYLAND_DISPLAY")?)?;
-	let ctx = Context::new(wlmm, wlim);
-	let ctx = Rc::new(RefCell::new(ctx));
-
-	let display = Display::new(ctx.clone());
+	let ctx = Rc::new(RefCell::new(Context::new_default()?));
+	let display = Display::new(ctx.clone())?;
 	let registry = display.borrow_mut().make_registry()?;
 	ctx.borrow_mut().handle_events()?;
 	let compositor = Compositor::new_bound(&mut registry.borrow_mut(), ctx.clone())?;
@@ -33,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 	let shm_pool = shm.borrow_mut().make_pool(W * H * pf.width() as i32)?;
 	ctx.borrow_mut().handle_events()?;
 	let xdg_wm_base = XdgWmBase::new_bound(&mut registry.borrow_mut())?;
-	let xdg_surface = xdg_wm_base.borrow_mut().make_xdg_surface(surface.clone(), (W, H))?;
+	let xdg_surface = xdg_wm_base.borrow_mut().make_xdg_surface(surface.clone())?;
 	let xdg_toplevel = XdgTopLevel::new_from_xdg_surface(xdg_surface.clone(), ctx.clone())?;
 	xdg_toplevel.borrow_mut().set_app_id(String::from("wayland-raw-appid"))?;
 	xdg_toplevel.borrow_mut().set_title(String::from("wayland-raw-title"))?;

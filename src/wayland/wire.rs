@@ -87,6 +87,10 @@ impl MessageManager {
 		Ok(wlmm)
 	}
 
+	pub fn from_defualt_env() -> Result<Self, Box<dyn Error>> {
+		Self::new(&env::var("WAYLAND_DISPLAY")?)
+	}
+
 	pub fn discon(&self) -> Result<(), Box<dyn Error>> {
 		Ok(self.sock.shutdown(std::net::Shutdown::Both)?)
 	}

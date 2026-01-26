@@ -1,9 +1,5 @@
 use crate::wayland::{
-	CtxType, EventAction, OpCode, RcCell, RecvError, WaylandError, WaylandObject,
-	WaylandObjectKind,
-	callback::Callback,
-	registry::Registry,
-	wire::{FromWirePayload, Id, WireArgument, WireRequest},
+	Context, CtxType, EventAction, ExpectRc, OpCode, RcCell, RecvError, WaylandError, WaylandObject, WaylandObjectKind, callback::Callback, registry::Registry, wire::{FromWirePayload, Id, WireArgument, WireRequest}
 };
 use std::{cell::RefCell, error::Error, rc::Rc};
 
@@ -13,28 +9,28 @@ pub struct Display {
 }
 
 impl Display {
-	pub fn new(ctx: CtxType) -> RcCell<Self> {
+	pub fn new(ctx: RcCell<Context>) -> Result<RcCell<Self>, Box<dyn Error>> {
 		let display = Rc::new(RefCell::new(Self {
 			id: 0,
-			ctx: ctx.clone(),
+			ctx: Rc::downgrade(&ctx),
 		}));
 		let id =
 			ctx.borrow_mut().wlim.new_id_registered(WaylandObjectKind::Display, display.clone());
 		display.borrow_mut().id = id;
-		display
+		Ok(display)
 	}
 
 	pub fn make_registry(&mut self) -> Result<RcCell<Registry>, Box<dyn Error>> {
 		let reg = Rc::new(RefCell::new(Registry::new_empty(0, self.ctx.clone())));
 		let id =
-			self.ctx.borrow_mut().wlim.new_id_registered(WaylandObjectKind::Registry, reg.clone());
+			self.ctx.upgrade().to_wl_err()?.borrow_mut().wlim.new_id_registered(WaylandObjectKind::Registry, reg.clone());
 		reg.borrow_mut().id = id;
 		self.wl_get_registry(id)?;
 		Ok(reg)
 	}
 
 	pub(crate) fn wl_get_registry(&mut self, id: Id) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut WireRequest {
 			sender_id: self.id,
 			opcode: 1,
 			args: vec![WireArgument::NewId(id)],
@@ -42,7 +38,7 @@ impl Display {
 	}
 
 	pub(crate) fn wl_sync(&mut self, id: Id) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut WireRequest {
 			sender_id: self.id,
 			opcode: 0,
 			args: vec![WireArgument::NewId(id)],
@@ -52,7 +48,7 @@ impl Display {
 	pub fn sync(&mut self) -> Result<RcCell<Callback>, Box<dyn Error>> {
 		let cb = Callback::new(self.ctx.clone())?;
 		let id =
-			self.ctx.borrow_mut().wlim.new_id_registered(WaylandObjectKind::Callback, cb.clone());
+			self.ctx.upgrade().to_wl_err()?.borrow_mut().wlim.new_id_registered(WaylandObjectKind::Callback, cb.clone());
 		self.wl_sync(id)?;
 		Ok(cb)
 	}
@@ -88,7 +84,7 @@ impl WaylandObject for Display {
 				// 	"==================== ID {:?} GOT DELETED (unimpl)",
 				// 	deleted_id
 				// );
-				// self.ctx.borrow_mut().wlim.free_id(deleted_id)?;
+				// self.ctx.upgrade().to_wl_err()?.borrow_mut().wlim.free_id(deleted_id)?;
 				pending.push(EventAction::IdDeletion(deleted_id));
 			}
 			inv => {

@@ -8,7 +8,7 @@ use std::{
 	env,
 	error::Error,
 	fmt::{self, Display},
-	rc::Rc,
+	rc::{Rc, Weak},
 };
 pub mod buffer;
 pub mod callback;
@@ -44,6 +44,7 @@ impl RecvError {
 	}
 }
 
+#[allow(dead_code)]
 #[repr(usize)]
 pub(crate) enum DebugLevel {
 	Verbose,
@@ -68,7 +69,7 @@ pub(crate) trait WaylandObject {
 	fn as_str(&self) -> &'static str;
 }
 
-pub type CtxType = Rc<RefCell<Context>>;
+pub type CtxType = Weak<RefCell<Context>>;
 
 pub struct Context {
 	wlmm: MessageManager,
@@ -83,6 +84,12 @@ impl Context {
 			wlim,
 			xdg_surface: None,
 		}
+	}
+
+	pub fn new_default() -> Result<Self, Box<dyn Error>> {
+		let wlim = IdentManager::default();
+		let wlmm = MessageManager::from_defualt_env()?;
+		Ok(Context::new(wlmm, wlim))
 	}
 
 	pub fn handle_events(&mut self) -> Result<(), Box<dyn Error>> {
@@ -118,11 +125,13 @@ impl Context {
 				EventAction::Resize(w, h) => {
 					let xdgs = self.xdg_surface.clone().ok_or(WaylandError::ObjectNonExistent)?;
 					let xdgs = xdgs.borrow_mut();
-					let surf = xdgs.wl_surface.borrow_mut();
+					let surf = xdgs.wl_surface.upgrade().to_wl_err()?;
+					let surf = surf.borrow();
 					let buf_ = surf.attached_buf.clone().ok_or(WaylandError::ObjectNonExistent)?;
 					let mut buf = buf_.borrow_mut();
 					println!("! event handler ! calling resize, w: {}, h: {}", w, h);
-					let new_buf_id = self.wlim.new_id_registered(WaylandObjectKind::Buffer, buf_.clone());
+					let new_buf_id =
+						self.wlim.new_id_registered(WaylandObjectKind::Buffer, buf_.clone());
 					let reqs = buf.resize(new_buf_id, (w, h))?;
 					// possibly recursive
 					for mut req in reqs {
@@ -171,6 +180,7 @@ impl WaylandObjectKind {
 // wayland trait object
 type Wlto = Rc<RefCell<dyn WaylandObject>>;
 pub type RcCell<T> = Rc<RefCell<T>>;
+pub type WeakCell<T> = Weak<RefCell<T>>;
 
 #[derive(Default)]
 pub struct IdentManager {
@@ -228,6 +238,7 @@ pub enum WaylandError {
 	NoSerial,
 	InvalidEnumVariant,
 	BufferObjectNotAttached,
+	ObjectNonExistentInWeak,
 }
 
 impl WaylandError {
@@ -259,8 +270,23 @@ impl fmt::Display for WaylandError {
 			WaylandError::BufferObjectNotAttached => {
 				write!(f, "no buffer rust object had been attached to the surface")
 			}
+			WaylandError::ObjectNonExistentInWeak => {
+				write!(f, "no object was found inside a weak reference")
+			}
 		}
 	}
 }
 
 impl Error for WaylandError {}
+
+pub(crate) trait ExpectRc<T> {
+	fn to_wl_err(self) -> Result<RcCell<T>, Box<dyn Error>>;
+}
+impl<T> ExpectRc<T> for Option<Rc<RefCell<T>>> {
+	fn to_wl_err(self) -> Result<RcCell<T>, Box<dyn Error>> {
+		match self {
+			Some(x) => Ok(x),
+			None => Err(WaylandError::ObjectNonExistentInWeak.boxed()),
+		}
+	}
+}

@@ -1,13 +1,14 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::wayland::{
-	CtxType, DebugLevel, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+	CtxType, DebugLevel, EventAction, ExpectRc, RcCell, WaylandError, WaylandObject,
+	WaylandObjectKind,
 	wire::{FromWirePayload, Id},
 };
 
 pub struct Callback {
 	pub(crate) id: Id,
-	pub(crate) ctx: CtxType,
+	pub(crate) _ctx: CtxType,
 	pub done: bool,
 	pub data: Option<u32>,
 }
@@ -16,18 +17,23 @@ impl Callback {
 	pub(crate) fn new(ctx: CtxType) -> Result<RcCell<Self>, Box<dyn Error>> {
 		let cb = Rc::new(RefCell::new(Self {
 			id: 0,
-			ctx: ctx.clone(),
+			_ctx: ctx.clone(),
 			done: false,
 			data: None,
 		}));
-		let id =
-			ctx.borrow_mut().wlim.new_id_registered(super::WaylandObjectKind::Callback, cb.clone());
+		let id = ctx
+			.upgrade()
+			.to_wl_err()?
+			.borrow_mut()
+			.wlim
+			.new_id_registered(super::WaylandObjectKind::Callback, cb.clone());
 		cb.borrow_mut().id = id;
 		Ok(cb)
 	}
 
+	#[allow(dead_code)]
 	pub(crate) fn destroy(&self) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow_mut().wlim.free_id(self.id)
+		self._ctx.upgrade().to_wl_err()?.borrow_mut().wlim.free_id(self.id)
 	}
 }
 

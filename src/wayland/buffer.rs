@@ -1,10 +1,7 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::wayland::{
-	CtxType, DebugLevel, EventAction, OpCode, RcCell, WaylandError, WaylandObject,
-	WaylandObjectKind,
-	shm::{PixelFormat, SharedMemoryPool},
-	wire::{Id, WireRequest},
+	Context, CtxType, DebugLevel, EventAction, ExpectRc, OpCode, RcCell, WaylandError, WaylandObject, WaylandObjectKind, WeakCell, shm::{PixelFormat, SharedMemoryPool}, wire::{Id, WireRequest}
 };
 
 pub struct Buffer {
@@ -15,7 +12,7 @@ pub struct Buffer {
 	pub height: i32,
 	pub format: PixelFormat,
 	pub in_use: bool,
-	pub shm_pool: RcCell<SharedMemoryPool>,
+	pub shm_pool: WeakCell<SharedMemoryPool>,
 }
 
 impl Buffer {
@@ -23,21 +20,22 @@ impl Buffer {
 		shmp: RcCell<SharedMemoryPool>,
 		(offset, width, height): (i32, i32, i32),
 		format: PixelFormat,
-		ctx: CtxType,
+		ctx: RcCell<Context>,
 	) -> Result<RcCell<Buffer>, Box<dyn Error>> {
 		let buf = Rc::new(RefCell::new(Buffer {
 			id: 0,
-			ctx: ctx.clone(),
+			ctx: Rc::downgrade(&ctx),
 			offset,
 			width,
 			height,
 			format,
 			in_use: false,
-			shm_pool: shmp.clone(),
+			shm_pool: Rc::downgrade(&shmp).clone(),
 		}));
-		let id = ctx.borrow_mut().wlim.new_id_registered(WaylandObjectKind::Buffer, buf.clone());
+		let mut ctx = ctx.borrow_mut();
+		let id = ctx.wlim.new_id_registered(WaylandObjectKind::Buffer, buf.clone());
 		buf.borrow_mut().id = id;
-		ctx.borrow().wlmm.send_request(&mut shmp.borrow().wl_create_buffer(
+		ctx.wlmm.send_request(&mut shmp.borrow().wl_create_buffer(
 			id,
 			(offset, width, height, width * format.width() as i32),
 			format,
@@ -54,12 +52,18 @@ impl Buffer {
 	}
 
 	pub fn destroy(&self) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut self.wl_destroy())?;
-		self.ctx.borrow_mut().wlim.free_id(self.id)?;
+		let ctx = self.ctx.upgrade().to_wl_err()?;
+		let mut ctx = ctx.borrow_mut();
+		ctx.wlmm.send_request(&mut self.wl_destroy())?;
+		ctx.wlim.free_id(self.id)?;
 		Ok(())
 	}
 
-	pub(crate) fn resize(&mut self, new_buf_id: Id, (w, h): (i32, i32)) -> Result<Vec<WireRequest>, Box<dyn Error>> {
+	pub(crate) fn resize(
+		&mut self,
+		new_buf_id: Id,
+		(w, h): (i32, i32),
+	) -> Result<Vec<WireRequest>, Box<dyn Error>> {
 		let mut pending = vec![];
 		self.width = w;
 		self.height = h;
@@ -67,7 +71,7 @@ impl Buffer {
 
 		pending.push(self.wl_destroy());
 
-		let shmp = self.shm_pool.clone();
+		let shmp = self.shm_pool.upgrade().to_wl_err()?;
 		let mut shmp = shmp.borrow_mut();
 		let mut shm_actions = shmp.resize_if_larger(w * h * self.format.width() as i32)?;
 		pending.append(&mut shm_actions);
@@ -79,7 +83,7 @@ impl Buffer {
 			(self.offset, self.width, self.height, self.width * self.format.width() as i32),
 			self.format,
 		));
-		
+
 		Ok(pending)
 	}
 }

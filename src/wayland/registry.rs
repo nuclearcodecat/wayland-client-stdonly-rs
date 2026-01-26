@@ -1,8 +1,7 @@
 use std::{collections::HashMap, error::Error};
 
 use crate::wayland::{
-	CtxType, DebugLevel, EventAction, OpCode, WaylandError, WaylandObject, WaylandObjectKind,
-	wire::{FromWirePayload, Id, WireArgument, WireRequest},
+	CtxType, DebugLevel, EventAction, ExpectRc, OpCode, WaylandError, WaylandObject, WaylandObjectKind, wire::{FromWirePayload, Id, WireArgument, WireRequest}
 };
 
 pub struct Registry {
@@ -41,7 +40,7 @@ impl Registry {
 			.ok_or(WaylandError::NotInRegistry)?;
 		println!("bind global id for {}: {}", object.as_str(), global_id);
 
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut WireRequest {
 			// wl_registry id
 			sender_id: self.id,
 			// first request in the proto

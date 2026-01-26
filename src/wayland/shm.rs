@@ -10,9 +10,7 @@ use std::{
 // std depends on libc anyway so i consider using it fair
 // i may replace this with asm in the future but that means amd64 only
 use crate::wayland::{
-	CtxType, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
-	registry::Registry,
-	wire::{FromWirePayload, Id, WireArgument, WireRequest},
+	Context, CtxType, EventAction, ExpectRc, RcCell, WaylandError, WaylandObject, WaylandObjectKind, registry::Registry, wire::{FromWirePayload, Id, WireArgument, WireRequest}
 };
 use libc::{
 	MAP_FAILED, MAP_SHARED, O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, close, ftruncate, mmap, munmap,
@@ -64,11 +62,13 @@ impl SharedMemory {
 
 	pub fn new_bound_initialized(
 		registry: &mut Registry,
-		ctx: CtxType,
+		ctx: RcCell<Context>,
 	) -> Result<RcCell<Self>, Box<dyn Error>> {
-		let shm = Rc::new(RefCell::new(Self::new(0, ctx.clone())));
-		let id =
-			ctx.borrow_mut().wlim.new_id_registered(WaylandObjectKind::SharedMemory, shm.clone());
+		let shm = Rc::new(RefCell::new(Self::new(0, Rc::downgrade(&ctx))));
+		let id = ctx
+			.borrow_mut()
+			.wlim
+			.new_id_registered(WaylandObjectKind::SharedMemory, shm.clone());
 		shm.borrow_mut().id = id;
 		registry.bind(id, WaylandObjectKind::SharedMemory, 1)?;
 		Ok(shm)
@@ -90,6 +90,8 @@ impl SharedMemory {
 			Rc::new(RefCell::new(SharedMemoryPool::new(0, self.ctx.clone(), name, size, fd)));
 		let id = self
 			.ctx
+			.upgrade()
+			.to_wl_err()?
 			.borrow_mut()
 			.wlim
 			.new_id_registered(WaylandObjectKind::SharedMemoryPool, shmpool.clone());
@@ -107,7 +109,7 @@ impl SharedMemory {
 		fd: RawFd,
 		id: Id,
 	) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut WireRequest {
+		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut WireRequest {
 			sender_id: self.id,
 			opcode: 0,
 			args: vec![
@@ -175,9 +177,7 @@ impl SharedMemoryPool {
 		WireRequest {
 			sender_id: self.id,
 			opcode: 2,
-			args: vec![
-				WireArgument::Int(self.size),
-			],
+			args: vec![WireArgument::Int(self.size)],
 		}
 	}
 
@@ -209,7 +209,8 @@ impl SharedMemoryPool {
 	}
 
 	pub fn destroy(&self) -> Result<(), Box<dyn Error>> {
-		let mut ctx = self.ctx.borrow_mut();
+		let ctx = self.ctx.upgrade().to_wl_err()?;
+		let mut ctx = ctx.borrow_mut();
 		ctx.wlmm.send_request(&mut self.wl_destroy())?;
 		ctx.wlim.free_id(self.id)?;
 		self.unmap()?;
@@ -233,7 +234,10 @@ impl SharedMemoryPool {
 		Ok(())
 	}
 
-	pub(crate) fn resize_if_larger(&mut self, size: i32) -> Result<Vec<WireRequest>, Box<dyn Error>> {
+	pub(crate) fn resize_if_larger(
+		&mut self,
+		size: i32,
+	) -> Result<Vec<WireRequest>, Box<dyn Error>> {
 		let mut pending = vec![];
 		if size < self.size {
 			return Ok(pending);
@@ -296,8 +300,8 @@ impl WaylandObject for SharedMemory {
 impl WaylandObject for SharedMemoryPool {
 	fn handle(
 		&mut self,
-		opcode: super::OpCode,
-		payload: &[u8],
+		_opcode: super::OpCode,
+		_payload: &[u8],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		todo!()
 	}

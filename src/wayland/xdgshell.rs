@@ -1,10 +1,7 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::wayland::{
-	CtxType, DebugLevel, EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
-	registry::Registry,
-	surface::Surface,
-	wire::{FromWirePayload, Id, WireArgument, WireRequest},
+	Context, CtxType, DebugLevel, EventAction, ExpectRc, RcCell, WaylandError, WaylandObject, WaylandObjectKind, WeakCell, registry::Registry, surface::Surface, wire::{FromWirePayload, Id, WireArgument, WireRequest}
 };
 
 pub struct XdgWmBase {
@@ -20,6 +17,8 @@ impl XdgWmBase {
 		}));
 		let id = registry
 			.ctx
+			.upgrade()
+			.to_wl_err()?
 			.borrow_mut()
 			.wlim
 			.new_id_registered(WaylandObjectKind::XdgWmBase, obj.clone());
@@ -37,8 +36,10 @@ impl XdgWmBase {
 	}
 
 	pub fn destroy(&self) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut self.wl_destroy()?)?;
-		self.ctx.borrow_mut().wlim.free_id(self.id)?;
+		let ctx = self.ctx.upgrade().to_wl_err()?;
+		let mut ctx = ctx.borrow_mut();
+		ctx.wlmm.send_request(&mut self.wl_destroy()?)?;
+		ctx.wlim.free_id(self.id)?;
 		Ok(())
 	}
 
@@ -51,7 +52,7 @@ impl XdgWmBase {
 	}
 
 	pub fn pong(&self, serial: u32) -> Result<(), Box<dyn Error>> {
-		self.ctx.borrow().wlmm.send_request(&mut self.wl_pong(serial)?)
+		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_pong(serial)?)
 	}
 
 	pub(crate) fn wl_get_xdg_surface(
@@ -69,17 +70,15 @@ impl XdgWmBase {
 	pub fn make_xdg_surface(
 		&self,
 		wl_surface: RcCell<Surface>,
-		(w, h): (i32, i32),
 	) -> Result<RcCell<XdgSurface>, Box<dyn Error>> {
 		let surf_id = wl_surface.borrow().id;
 		let xdgs = Rc::new(RefCell::new(XdgSurface {
 			id: 0,
 			is_configured: false,
-			wl_surface,
-			w,
-			h,
+			wl_surface: Rc::downgrade(&wl_surface),
 		}));
-		let mut ctx = self.ctx.borrow_mut();
+		let ctx = self.ctx.upgrade().to_wl_err()?;
+		let mut ctx = ctx.borrow_mut();
 		let id = ctx.wlim.new_id_registered(WaylandObjectKind::XdgSurface, xdgs.clone());
 		ctx.wlmm.send_request(&mut self.wl_get_xdg_surface(surf_id, id)?)?;
 		xdgs.borrow_mut().id = id;
@@ -91,9 +90,7 @@ impl XdgWmBase {
 pub struct XdgSurface {
 	pub id: Id,
 	pub is_configured: bool,
-	pub(crate) wl_surface: RcCell<Surface>,
-	pub(crate) w: i32,
-	pub(crate) h: i32,
+	pub(crate) wl_surface: WeakCell<Surface>,
 }
 
 impl XdgSurface {
@@ -120,7 +117,7 @@ impl XdgSurface {
 pub struct XdgTopLevel {
 	pub id: Id,
 	ctx: CtxType,
-	parent: RcCell<XdgSurface>,
+	_parent: WeakCell<XdgSurface>,
 	title: Option<String>,
 	appid: Option<String>,
 }
@@ -128,12 +125,12 @@ pub struct XdgTopLevel {
 impl XdgTopLevel {
 	pub fn new_from_xdg_surface(
 		xdg_surface: RcCell<XdgSurface>,
-		ctx: CtxType,
+		ctx: RcCell<Context>,
 	) -> Result<RcCell<Self>, Box<dyn Error>> {
 		let xdgtl = Rc::new(RefCell::new(Self {
 			id: 0,
-			ctx: ctx.clone(),
-			parent: xdg_surface.clone(),
+			ctx: Rc::downgrade(&ctx),
+			_parent: Rc::downgrade(&xdg_surface),
 			title: None,
 			appid: None,
 		}));
@@ -154,7 +151,7 @@ impl XdgTopLevel {
 
 	pub fn set_app_id(&mut self, id: String) -> Result<(), Box<dyn Error>> {
 		self.appid = Some(id.clone());
-		self.ctx.borrow().wlmm.send_request(&mut self.wl_set_app_id(id)?)
+		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_set_app_id(id)?)
 	}
 
 	pub(crate) fn wl_set_title(&self, id: String) -> Result<WireRequest, Box<dyn Error>> {
@@ -167,10 +164,11 @@ impl XdgTopLevel {
 
 	pub fn set_title(&mut self, id: String) -> Result<(), Box<dyn Error>> {
 		self.title = Some(id.clone());
-		self.ctx.borrow().wlmm.send_request(&mut self.wl_set_title(id)?)
+		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_set_title(id)?)
 	}
 }
 
+#[allow(dead_code)]
 #[repr(u32)]
 #[derive(Debug)]
 enum XdgTopLevelStates {
