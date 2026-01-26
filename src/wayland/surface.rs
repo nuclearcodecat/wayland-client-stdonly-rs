@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use crate::wayland::{
-	CtxType, EventAction, ExpectRc, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+	EventAction, ExpectRc, RcCell, WaylandError, WaylandObject, WaylandObjectKind, WeRcGod,
 	buffer::Buffer,
 	callback::Callback,
 	region::Region,
@@ -10,15 +10,15 @@ use crate::wayland::{
 
 pub struct Surface {
 	pub id: Id,
-	pub(crate) ctx: CtxType,
+	pub(crate) god: WeRcGod,
 	pub attached_buf: Option<RcCell<Buffer>>,
 }
 
 impl Surface {
-	pub(crate) fn new(id: Id, ctx: CtxType) -> Self {
+	pub(crate) fn new(id: Id, god: WeRcGod) -> Self {
 		Self {
 			id,
-			ctx,
+			god,
 			attached_buf: None,
 		}
 	}
@@ -32,9 +32,9 @@ impl Surface {
 	}
 
 	pub fn destroy(&self) -> Result<(), Box<dyn Error>> {
-		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_destroy())
+		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_destroy())
 		// id should be freed by the compositor
-		// self.ctx.borrow_mut().wlim.free_id(self.id)?;
+		// self.god.borrow_mut().wlim.free_id(self.id)?;
 	}
 
 	pub(crate) fn wl_attach(&self, buf_id: Id) -> Result<WireRequest, Box<dyn Error>> {
@@ -52,7 +52,7 @@ impl Surface {
 
 	pub fn attach_buffer(&mut self) -> Result<(), Box<dyn Error>> {
 		let buf = self.attached_buf.clone().ok_or(WaylandError::BufferObjectNotAttached)?;
-		self.ctx
+		self.god
 			.upgrade()
 			.to_wl_err()?
 			.borrow()
@@ -69,7 +69,7 @@ impl Surface {
 	}
 
 	pub fn commit(&self) -> Result<(), Box<dyn Error>> {
-		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_commit())
+		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_commit())
 	}
 
 	pub(crate) fn wl_damage_buffer(&self, region: Region) -> Result<WireRequest, Box<dyn Error>> {
@@ -86,7 +86,7 @@ impl Surface {
 	}
 
 	pub fn damage_buffer(&self, region: Region) -> Result<(), Box<dyn Error>> {
-		self.ctx
+		self.god
 			.upgrade()
 			.to_wl_err()?
 			.borrow()
@@ -97,7 +97,7 @@ impl Surface {
 	pub fn repaint(&self) -> Result<(), Box<dyn Error>> {
 		if let Some(buf) = &self.attached_buf {
 			let buf = buf.borrow();
-			self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(
+			self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(
 				&mut self.wl_damage_buffer(Region {
 					x: 0,
 					y: 0,
@@ -118,8 +118,8 @@ impl Surface {
 	}
 
 	pub fn frame(&self) -> Result<RcCell<Callback>, Box<dyn Error>> {
-		let cb = Callback::new(self.ctx.clone())?;
-		self.ctx
+		let cb = Callback::new(self.god.clone())?;
+		self.god
 			.upgrade()
 			.to_wl_err()?
 			.borrow()

@@ -4,38 +4,40 @@ use std::{
 	io::{BufRead, BufReader, Read},
 };
 
-use wayland_raw::{init_logger, wayland::{
-	Context, RcCell,
-	buffer::Buffer,
-	callback::Callback,
-	compositor::Compositor,
-	display::Display,
-	shm::{PixelFormat, SharedMemory},
-	xdgshell::{XdgTopLevel, XdgWmBase},
-}};
+use wayland_raw::{
+	init_logger,
+	wayland::{
+		God, RcCell,
+		buffer::Buffer,
+		callback::Callback,
+		compositor::Compositor,
+		display::Display,
+		shm::{PixelFormat, SharedMemory},
+		xdgshell::{XdgTopLevel, XdgWmBase},
+	},
+};
 
 fn main() -> Result<(), Box<dyn Error>> {
 	init_logger();
-	const W: i32 = 500;
-	const H: i32 = 900;
+	const W: i32 = 400;
+	const H: i32 = 400;
 
-	let ctx = Context::new_default()?;
-	let display = Display::new(ctx.clone())?;
+	let god = God::new_default()?;
+	let display = Display::new(god.clone())?;
 	let registry = display.borrow_mut().make_registry()?;
-	ctx.borrow_mut().handle_events()?;
-	let compositor = Compositor::new_bound(&mut registry.borrow_mut(), ctx.clone())?;
+	god.borrow_mut().handle_events()?;
+	let compositor = Compositor::new_bound(&mut registry.borrow_mut(), god.clone())?;
 	let surface = compositor.borrow_mut().make_surface()?;
-	let shm = SharedMemory::new_bound_initialized(&mut registry.borrow_mut(), ctx.clone())?;
+	let shm = SharedMemory::new_bound_initialized(&mut registry.borrow_mut(), god.clone())?;
 	let pf = PixelFormat::Xrgb888;
 	let shm_pool = shm.borrow_mut().make_pool(W * H * pf.width() as i32)?;
-	ctx.borrow_mut().handle_events()?;
 	let xdg_wm_base = XdgWmBase::new_bound(&mut registry.borrow_mut())?;
 	let xdg_surface = xdg_wm_base.borrow_mut().make_xdg_surface(surface.clone())?;
-	let xdg_toplevel = XdgTopLevel::new_from_xdg_surface(xdg_surface.clone(), ctx.clone())?;
+	let xdg_toplevel = XdgTopLevel::new_from_xdg_surface(xdg_surface.clone(), god.clone())?;
 	xdg_toplevel.borrow_mut().set_app_id(String::from("wayland-raw-appid"))?;
 	xdg_toplevel.borrow_mut().set_title(String::from("wayland-raw-title"))?;
 
-	let buf = Buffer::new_initalized(shm_pool.clone(), (0, W, H), pf, ctx.clone())?;
+	let buf = Buffer::new_initalized(shm_pool.clone(), (0, W, H), pf, god.clone())?;
 	surface.borrow_mut().attach_buffer_obj(buf.clone())?;
 	surface.borrow_mut().commit()?;
 	let mut frame: usize = 0;
@@ -43,8 +45,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	let (img_w, img_h, machine) = parse_pix("pix.ppm")?;
 	loop {
-		ctx.borrow_mut().handle_events()?;
+		god.borrow_mut().handle_events()?;
 
+		if xdg_toplevel.borrow().close_requested {
+			break Ok(());
+		}
 		if xdg_surface.borrow().is_configured {
 			let ready = match &cb.clone() {
 				Some(cb) => cb.borrow().done,
@@ -84,9 +89,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 								slice[surface_ix + 1] = machine[img_ix + 1];
 								slice[surface_ix] = machine[img_ix + 2];
 							} else {
-								slice[surface_ix] = b;
-								slice[surface_ix + 1] = g;
-								slice[surface_ix + 2] = r;
+								slice[surface_ix] = b.wrapping_sub(x as u8);
+								slice[surface_ix + 1] = g.wrapping_add(y as u8);
+								slice[surface_ix + 2] = r.wrapping_shl(x as u32);
 							}
 						}
 					}

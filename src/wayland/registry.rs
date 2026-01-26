@@ -1,15 +1,15 @@
 use std::{collections::HashMap, error::Error};
 
 use crate::wayland::{
-	CtxType, DebugLevel, EventAction, ExpectRc, OpCode, WaylandError, WaylandObject,
-	WaylandObjectKind,
+	DebugLevel, EventAction, ExpectRc, OpCode, WaylandError, WaylandObject, WaylandObjectKind,
+	WeRcGod,
 	wire::{FromWirePayload, Id, WireArgument, WireRequest},
 };
 
 pub struct Registry {
 	pub id: Id,
 	pub(crate) inner: HashMap<u32, RegistryEntry>,
-	pub(crate) ctx: CtxType,
+	pub(crate) god: WeRcGod,
 }
 
 #[derive(PartialEq, Eq, Hash, Debug)]
@@ -19,11 +19,11 @@ pub struct RegistryEntry {
 }
 
 impl Registry {
-	pub fn new_empty(id: Id, ctx: CtxType) -> Self {
+	pub fn new_empty(id: Id, god: WeRcGod) -> Self {
 		Self {
 			id,
 			inner: HashMap::new(),
-			ctx,
+			god,
 		}
 	}
 
@@ -42,7 +42,7 @@ impl Registry {
 			.ok_or(WaylandError::NotInRegistry)?;
 		println!("bind global id for {}: {}", object.as_str(), global_id);
 
-		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut WireRequest {
+		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut WireRequest {
 			// wl_registry id
 			sender_id: self.id,
 			// first request in the proto

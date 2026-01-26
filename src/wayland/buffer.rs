@@ -1,15 +1,19 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
-use crate::{GREEN, NONE, wayland::{
-	Context, CtxType, DebugLevel, EventAction, ExpectRc, OpCode, RcCell, WaylandError,
-	WaylandObject, WaylandObjectKind, WeakCell,
-	shm::{PixelFormat, SharedMemoryPool},
-	wire::{Id, WireRequest},
-}, wlog};
+use crate::{
+	NONE, WHITE,
+	wayland::{
+		DebugLevel, EventAction, ExpectRc, God, OpCode, RcCell, WaylandError, WaylandObject,
+		WaylandObjectKind, WeRcGod, WeakCell,
+		shm::{PixelFormat, SharedMemoryPool},
+		wire::{Id, WireRequest},
+	},
+	wlog,
+};
 
 pub struct Buffer {
 	pub id: Id,
-	pub(crate) ctx: CtxType,
+	pub(crate) god: WeRcGod,
 	pub offset: i32,
 	pub width: i32,
 	pub height: i32,
@@ -23,11 +27,11 @@ impl Buffer {
 		shmp: RcCell<SharedMemoryPool>,
 		(offset, width, height): (i32, i32, i32),
 		format: PixelFormat,
-		ctx: RcCell<Context>,
+		god: RcCell<God>,
 	) -> Result<RcCell<Buffer>, Box<dyn Error>> {
 		let buf = Rc::new(RefCell::new(Buffer {
 			id: 0,
-			ctx: Rc::downgrade(&ctx),
+			god: Rc::downgrade(&god),
 			offset,
 			width,
 			height,
@@ -35,10 +39,10 @@ impl Buffer {
 			in_use: false,
 			shm_pool: Rc::downgrade(&shmp).clone(),
 		}));
-		let mut ctx = ctx.borrow_mut();
-		let id = ctx.wlim.new_id_registered(WaylandObjectKind::Buffer, buf.clone());
+		let mut god = god.borrow_mut();
+		let id = god.wlim.new_id_registered(WaylandObjectKind::Buffer, buf.clone());
 		buf.borrow_mut().id = id;
-		ctx.wlmm.send_request(&mut shmp.borrow().wl_create_buffer(
+		god.wlmm.send_request(&mut shmp.borrow().wl_create_buffer(
 			id,
 			(offset, width, height, width * format.width() as i32),
 			format,
@@ -55,37 +59,53 @@ impl Buffer {
 	}
 
 	pub fn destroy(&self) -> Result<(), Box<dyn Error>> {
-		let ctx = self.ctx.upgrade().to_wl_err()?;
-		let mut ctx = ctx.borrow_mut();
-		ctx.wlmm.send_request(&mut self.wl_destroy())?;
-		ctx.wlim.free_id(self.id)?;
+		let god = self.god.upgrade().to_wl_err()?;
+		let mut god = god.borrow_mut();
+		god.wlmm.send_request(&mut self.wl_destroy())?;
+		god.wlim.free_id(self.id)?;
 		Ok(())
 	}
 
+	#[allow(clippy::type_complexity)]
 	pub(crate) fn resize(
 		&mut self,
 		new_buf_id: Id,
 		(w, h): (i32, i32),
-	) -> Result<Vec<EventAction>, Box<dyn Error>> {
+	) -> Result<Vec<(EventAction, WaylandObjectKind, Id)>, Box<dyn Error>> {
 		let mut pending = vec![];
 		self.width = w;
 		self.height = h;
-		wlog!(DebugLevel::Important, "buffer", format!("RESIZE w: {} h: {}", self.width, self.height), GREEN, NONE);
+		wlog!(
+			DebugLevel::Important,
+			"wlto > buffer",
+			format!("RESIZE w: {} h: {}", self.width, self.height),
+			WHITE,
+			NONE
+		);
 
-		pending.push(EventAction::Request(self.wl_destroy()));
+		pending.push((EventAction::Request(self.wl_destroy()), WaylandObjectKind::Buffer, self.id));
 
 		let shmp = self.shm_pool.upgrade().to_wl_err()?;
 		let mut shmp = shmp.borrow_mut();
-		let mut shm_actions = shmp.resize_if_larger(w * h * self.format.width() as i32)?;
-		pending.append(&mut shm_actions);
+		let shm_actions = shmp.resize_if_larger(w * h * self.format.width() as i32)?;
+		pending.append(
+			&mut shm_actions
+				.into_iter()
+				.map(|x| (x, WaylandObjectKind::SharedMemoryPool, shmp.id))
+				.collect(),
+		);
 
 		self.id = new_buf_id;
 
-		pending.push(EventAction::Request(shmp.wl_create_buffer(
+		pending.push((
+			EventAction::Request(shmp.wl_create_buffer(
+				self.id,
+				(self.offset, self.width, self.height, self.width * self.format.width() as i32),
+				self.format,
+			)),
+			WaylandObjectKind::Buffer,
 			self.id,
-			(self.offset, self.width, self.height, self.width * self.format.width() as i32),
-			self.format,
-		)));
+		));
 
 		Ok(pending)
 	}

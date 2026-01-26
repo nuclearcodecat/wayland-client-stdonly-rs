@@ -10,7 +10,11 @@ use std::{
 	path::PathBuf,
 };
 
-use crate::wayland::WaylandError;
+use crate::{
+	GREEN, NONE,
+	wayland::{DebugLevel, WaylandError},
+	wlog,
+};
 
 pub type Id = u32;
 
@@ -88,7 +92,16 @@ impl MessageManager {
 	}
 
 	pub fn from_defualt_env() -> Result<Self, Box<dyn Error>> {
-		Self::new(&env::var("WAYLAND_DISPLAY")?)
+		let env = env::var("WAYLAND_DISPLAY");
+		match env {
+			Ok(x) => Ok(Self::new(&x)?),
+			Err(er) => {
+				match er {
+					std::env::VarError::NotPresent => Err(WaylandError::NoWaylandDisplay.boxed()),
+					_ => Err(Box::new(er))
+				}
+			},
+		}
 	}
 
 	pub fn discon(&self) -> Result<(), Box<dyn Error>> {
@@ -96,6 +109,7 @@ impl MessageManager {
 	}
 
 	pub fn send_request(&self, msg: &mut WireRequest) -> Result<(), Box<dyn Error>> {
+		wlog!(DebugLevel::Trivial, "wlmm", format!("sending request {:?}", msg), GREEN, NONE);
 		// println!("==== SEND_REQUEST CALLED");
 		let mut buf: Vec<u8> = vec![];
 		buf.append(&mut Vec::from(msg.sender_id.to_ne_bytes()));

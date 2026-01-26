@@ -1,7 +1,11 @@
-use crate::{CYAN, NONE, RED, YELLOW, wayland::{
-	wire::{Id, MessageManager, WireRequest},
-	xdgshell::XdgSurface,
-}, wlog};
+use crate::{
+	CYAN, NONE, RED, WHITE, YELLOW,
+	wayland::{
+		wire::{Id, MessageManager, WireRequest},
+		xdgshell::XdgSurface,
+	},
+	wlog,
+};
 use std::{
 	cell::RefCell,
 	collections::{HashMap, VecDeque},
@@ -45,6 +49,7 @@ impl RecvError {
 
 #[allow(dead_code)]
 #[repr(isize)]
+#[derive(PartialEq)]
 pub(crate) enum DebugLevel {
 	None,
 	Error,
@@ -69,15 +74,15 @@ pub(crate) trait WaylandObject {
 	fn as_str(&self) -> &'static str;
 }
 
-pub type CtxType = Weak<RefCell<Context>>;
+pub type WeRcGod = Weak<RefCell<God>>;
 
-pub struct Context {
+pub struct God {
 	wlmm: MessageManager,
 	wlim: IdentManager,
 	xdg_surface: Option<RcCell<XdgSurface>>,
 }
 
-impl Context {
+impl God {
 	pub fn new(wlmm: MessageManager, wlim: IdentManager) -> Self {
 		Self {
 			wlmm,
@@ -89,36 +94,57 @@ impl Context {
 	pub fn new_default() -> Result<RcCell<Self>, Box<dyn Error>> {
 		let wlim = IdentManager::default();
 		let wlmm = MessageManager::from_defualt_env()?;
-		Ok(Rc::new(RefCell::new(Context::new(wlmm, wlim))))
+		Ok(Rc::new(RefCell::new(God::new(wlmm, wlim))))
 	}
 
 	pub fn handle_events(&mut self) -> Result<(), Box<dyn Error>> {
+		wlog!(DebugLevel::Important, "event handler", "called", CYAN, NONE);
 		let mut retries = 0;
 		while self.wlmm.get_events()? == 0 && retries < 9999 {
 			retries += 1;
 		}
-		let mut actions: VecDeque<EventAction> = VecDeque::new();
+		let mut last_id: Id = 0;
+		let mut actions: VecDeque<(EventAction, WaylandObjectKind, Id)> = VecDeque::new();
 		while let Some(ev) = self.wlmm.q.pop_front() {
 			let obj = self.wlim.find_obj_by_id(ev.recv_id)?;
-			wlog!(DebugLevel::Trivial, "event handler", format!("going to handle {:?}", obj.0), CYAN, NONE);
 			let resulting_actions = obj.1.borrow_mut().handle(ev.opcode, &ev.payload)?;
-			actions.extend(resulting_actions);
+			let x: Vec<(EventAction, WaylandObjectKind, Id)> =
+				resulting_actions.into_iter().map(|x| (x, obj.0, ev.recv_id)).collect();
+			actions.extend(x);
 		}
-		while let Some(act) = actions.pop_front() {
+		while let Some((act, kind, id)) = actions.pop_front() {
+			if last_id != id {
+				wlog!(
+					DebugLevel::Trivial,
+					"event handler",
+					format!("going to handle {:?} ({id})", kind),
+					CYAN,
+					NONE
+				);
+				last_id = id;
+			}
 			match act {
 				EventAction::Request(mut msg) => {
 					self.wlmm.send_request(&mut msg)?;
 				}
 				EventAction::IdDeletion(id) => {
-					wlog!(DebugLevel::Trivial, "event handler", format!("id {id} deleted internally"), CYAN, NONE);
+					wlog!(
+						DebugLevel::Trivial,
+						"event handler",
+						format!("id {id} deleted internally"),
+						CYAN,
+						NONE
+					);
 					self.wlim.free_id(id)?;
 				}
-				// add colors
-				// EventAction::Error(er) => eprintln!("{RED}{:?}{NONE}", er),
 				EventAction::Error(er) => wlog!(DebugLevel::Error, "event handler", er, RED, RED),
-				// add colors
 				EventAction::DebugMessage(lvl, msg) => {
-					wlog!(lvl, "wlto", msg, YELLOW, NONE);
+					let tcol = if lvl == DebugLevel::Error {
+						RED
+					} else {
+						WHITE
+					};
+					wlog!(lvl, "wlto", msg, WHITE, tcol);
 				}
 				EventAction::Resize(w, h) => {
 					let xdgs = self.xdg_surface.clone().ok_or(WaylandError::ObjectNonExistent)?;
@@ -127,11 +153,17 @@ impl Context {
 					let surf = surf.borrow();
 					let buf_ = surf.attached_buf.clone().ok_or(WaylandError::ObjectNonExistent)?;
 					let mut buf = buf_.borrow_mut();
-					wlog!(DebugLevel::Important, "event handler", format!("calling resize, w: {}, h: {}", w, h), CYAN, NONE);
+					wlog!(
+						DebugLevel::Important,
+						"event handler",
+						format!("calling resize, w: {}, h: {}", w, h),
+						CYAN,
+						NONE
+					);
 					let new_buf_id =
 						self.wlim.new_id_registered(WaylandObjectKind::Buffer, buf_.clone());
 					let acts = buf.resize(new_buf_id, (w, h))?;
-					actions.extend(acts);
+					actions.extend_front(acts);
 				}
 			};
 		}
@@ -187,7 +219,13 @@ pub struct IdentManager {
 impl IdentManager {
 	pub(crate) fn new_id(&mut self) -> Id {
 		self.top_id += 1;
-		wlog!(DebugLevel::Trivial, "idman", format!("new id picked: {}", self.top_id), YELLOW, NONE);
+		wlog!(
+			DebugLevel::Trivial,
+			"wlim",
+			format!("new id picked: {}", self.top_id),
+			YELLOW,
+			NONE
+		);
 		self.top_id
 	}
 
@@ -203,7 +241,13 @@ impl IdentManager {
 			self.idmap.remove(&r).ok_or(WaylandError::IdMapRemovalFail.boxed())?;
 		}
 		self.free.push_back(id);
-		wlog!(DebugLevel::Trivial, "idman", format!("freeing id {id} | all: {:?}", self.free), YELLOW, NONE);
+		wlog!(
+			DebugLevel::Trivial,
+			"wlim",
+			format!("freeing id {id} | all: {:?}", self.free),
+			YELLOW,
+			NONE
+		);
 		Ok(())
 	}
 
@@ -234,6 +278,7 @@ pub enum WaylandError {
 	BufferObjectNotAttached,
 	ObjectNonExistentInWeak,
 	RequiredValueNone,
+	NoWaylandDisplay,
 }
 
 impl WaylandError {
@@ -271,6 +316,9 @@ impl fmt::Display for WaylandError {
 			WaylandError::RequiredValueNone => {
 				write!(f, "an option with a required value was None")
 			}
+			WaylandError::NoWaylandDisplay => {
+				write!(f, "WAYLAND_DISPLAY is not set")
+			}
 		}
 	}
 }
@@ -278,10 +326,11 @@ impl fmt::Display for WaylandError {
 impl Error for WaylandError {}
 
 pub(crate) trait ExpectRc<T> {
-	fn to_wl_err(self) -> Result<RcCell<T>, Box<dyn Error>>;
+	fn to_wl_err(self) -> Result<Rc<T>, Box<dyn Error>>;
 }
-impl<T> ExpectRc<T> for Option<Rc<RefCell<T>>> {
-	fn to_wl_err(self) -> Result<RcCell<T>, Box<dyn Error>> {
+
+impl<T> ExpectRc<T> for Option<Rc<T>> {
+	fn to_wl_err(self) -> Result<Rc<T>, Box<dyn Error>> {
 		match self {
 			Some(x) => Ok(x),
 			None => Err(WaylandError::ObjectNonExistentInWeak.boxed()),

@@ -1,27 +1,27 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::wayland::{
-	CtxType, DebugLevel, EventAction, ExpectRc, RcCell, WaylandError, WaylandObject,
-	WaylandObjectKind,
+	DebugLevel, EventAction, ExpectRc, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+	WeRcGod,
 	wire::{FromWirePayload, Id},
 };
 
 pub struct Callback {
 	pub(crate) id: Id,
-	pub(crate) _ctx: CtxType,
+	pub(crate) _god: WeRcGod,
 	pub done: bool,
 	pub data: Option<u32>,
 }
 
 impl Callback {
-	pub(crate) fn new(ctx: CtxType) -> Result<RcCell<Self>, Box<dyn Error>> {
+	pub(crate) fn new(god: WeRcGod) -> Result<RcCell<Self>, Box<dyn Error>> {
 		let cb = Rc::new(RefCell::new(Self {
 			id: 0,
-			_ctx: ctx.clone(),
+			_god: god.clone(),
 			done: false,
 			data: None,
 		}));
-		let id = ctx
+		let id = god
 			.upgrade()
 			.to_wl_err()?
 			.borrow_mut()
@@ -33,7 +33,7 @@ impl Callback {
 
 	#[allow(dead_code)]
 	pub(crate) fn destroy(&self) -> Result<(), Box<dyn Error>> {
-		self._ctx.upgrade().to_wl_err()?.borrow_mut().wlim.free_id(self.id)
+		self._god.upgrade().to_wl_err()?.borrow_mut().wlim.free_id(self.id)
 	}
 }
 

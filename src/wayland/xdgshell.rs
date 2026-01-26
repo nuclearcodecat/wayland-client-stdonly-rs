@@ -1,8 +1,8 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::wayland::{
-	Context, CtxType, DebugLevel, EventAction, ExpectRc, RcCell, WaylandError, WaylandObject,
-	WaylandObjectKind, WeakCell,
+	DebugLevel, EventAction, ExpectRc, God, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+	WeRcGod, WeakCell,
 	registry::Registry,
 	surface::Surface,
 	wire::{FromWirePayload, Id, WireArgument, WireRequest},
@@ -10,17 +10,17 @@ use crate::wayland::{
 
 pub struct XdgWmBase {
 	pub id: Id,
-	ctx: CtxType,
+	god: WeRcGod,
 }
 
 impl XdgWmBase {
 	pub fn new_bound(registry: &mut Registry) -> Result<RcCell<Self>, Box<dyn Error>> {
 		let obj = Rc::new(RefCell::new(Self {
 			id: 0,
-			ctx: registry.ctx.clone(),
+			god: registry.god.clone(),
 		}));
 		let id = registry
-			.ctx
+			.god
 			.upgrade()
 			.to_wl_err()?
 			.borrow_mut()
@@ -40,10 +40,10 @@ impl XdgWmBase {
 	}
 
 	pub fn destroy(&self) -> Result<(), Box<dyn Error>> {
-		let ctx = self.ctx.upgrade().to_wl_err()?;
-		let mut ctx = ctx.borrow_mut();
-		ctx.wlmm.send_request(&mut self.wl_destroy()?)?;
-		ctx.wlim.free_id(self.id)?;
+		let god = self.god.upgrade().to_wl_err()?;
+		let mut god = god.borrow_mut();
+		god.wlmm.send_request(&mut self.wl_destroy()?)?;
+		god.wlim.free_id(self.id)?;
 		Ok(())
 	}
 
@@ -56,7 +56,7 @@ impl XdgWmBase {
 	}
 
 	pub fn pong(&self, serial: u32) -> Result<(), Box<dyn Error>> {
-		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_pong(serial)?)
+		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_pong(serial)?)
 	}
 
 	pub(crate) fn wl_get_xdg_surface(
@@ -81,12 +81,12 @@ impl XdgWmBase {
 			is_configured: false,
 			wl_surface: Rc::downgrade(&wl_surface),
 		}));
-		let ctx = self.ctx.upgrade().to_wl_err()?;
-		let mut ctx = ctx.borrow_mut();
-		let id = ctx.wlim.new_id_registered(WaylandObjectKind::XdgSurface, xdgs.clone());
-		ctx.wlmm.send_request(&mut self.wl_get_xdg_surface(surf_id, id)?)?;
+		let god = self.god.upgrade().to_wl_err()?;
+		let mut god = god.borrow_mut();
+		let id = god.wlim.new_id_registered(WaylandObjectKind::XdgSurface, xdgs.clone());
+		god.wlmm.send_request(&mut self.wl_get_xdg_surface(surf_id, id)?)?;
 		xdgs.borrow_mut().id = id;
-		ctx.xdg_surface = Some(xdgs.clone());
+		god.xdg_surface = Some(xdgs.clone());
 		Ok(xdgs)
 	}
 }
@@ -120,27 +120,29 @@ impl XdgSurface {
 
 pub struct XdgTopLevel {
 	pub id: Id,
-	ctx: CtxType,
+	god: WeRcGod,
 	_parent: WeakCell<XdgSurface>,
 	title: Option<String>,
 	appid: Option<String>,
+	pub close_requested: bool,
 }
 
 impl XdgTopLevel {
 	pub fn new_from_xdg_surface(
 		xdg_surface: RcCell<XdgSurface>,
-		ctx: RcCell<Context>,
+		god: RcCell<God>,
 	) -> Result<RcCell<Self>, Box<dyn Error>> {
 		let xdgtl = Rc::new(RefCell::new(Self {
 			id: 0,
-			ctx: Rc::downgrade(&ctx),
+			god: Rc::downgrade(&god),
 			_parent: Rc::downgrade(&xdg_surface),
 			title: None,
 			appid: None,
+			close_requested: false,
 		}));
-		let mut ctx = ctx.borrow_mut();
-		let id = ctx.wlim.new_id_registered(WaylandObjectKind::XdgTopLevel, xdgtl.clone());
-		ctx.wlmm.send_request(&mut xdg_surface.borrow().wl_get_toplevel(id)?)?;
+		let mut god = god.borrow_mut();
+		let id = god.wlim.new_id_registered(WaylandObjectKind::XdgTopLevel, xdgtl.clone());
+		god.wlmm.send_request(&mut xdg_surface.borrow().wl_get_toplevel(id)?)?;
 		xdgtl.borrow_mut().id = id;
 		Ok(xdgtl)
 	}
@@ -155,7 +157,7 @@ impl XdgTopLevel {
 
 	pub fn set_app_id(&mut self, id: String) -> Result<(), Box<dyn Error>> {
 		self.appid = Some(id.clone());
-		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_set_app_id(id)?)
+		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_set_app_id(id)?)
 	}
 
 	pub(crate) fn wl_set_title(&self, id: String) -> Result<WireRequest, Box<dyn Error>> {
@@ -168,7 +170,7 @@ impl XdgTopLevel {
 
 	pub fn set_title(&mut self, id: String) -> Result<(), Box<dyn Error>> {
 		self.title = Some(id.clone());
-		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_set_title(id)?)
+		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_set_title(id)?)
 	}
 }
 
@@ -224,6 +226,10 @@ impl WaylandObject for XdgSurface {
 		match opcode {
 			// configure
 			0 => {
+				pending.push(EventAction::DebugMessage(
+					DebugLevel::Important,
+					format!("{} | configure received, acking", self.as_str()),
+				));
 				self.is_configured = true;
 				let serial = u32::from_wire(payload)?;
 				pending.push(EventAction::Request(self.wl_ack_configure(serial)?));
@@ -261,9 +267,9 @@ impl WaylandObject for XdgTopLevel {
 					})
 					.collect::<Result<Vec<_>, _>>()?;
 				pending.push(EventAction::DebugMessage(
-					DebugLevel::Trivial,
+					DebugLevel::Important,
 					format!(
-						"{} configure // w: {}, h: {}, states: {:?}",
+						"{} | configure // w: {}, h: {}, states: {:?}",
 						self.as_str(),
 						w,
 						h,
@@ -276,7 +282,11 @@ impl WaylandObject for XdgTopLevel {
 			}
 			// close
 			1 => {
-				todo!()
+				self.close_requested = true;
+				pending.push(EventAction::DebugMessage(
+					DebugLevel::Important,
+					format!("{} // close requested", self.as_str()),
+				));
 			}
 			// configure_bounds
 			2 => {

@@ -10,7 +10,10 @@ use std::{
 // std depends on libc anyway so i consider using it fair
 // i may replace this with asm in the future but that means amd64 only
 use crate::wayland::{
-	Context, CtxType, DebugLevel, EventAction, ExpectRc, RcCell, WaylandError, WaylandObject, WaylandObjectKind, registry::Registry, wire::{FromWirePayload, Id, WireArgument, WireRequest}
+	DebugLevel, EventAction, ExpectRc, God, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
+	WeRcGod,
+	registry::Registry,
+	wire::{FromWirePayload, Id, WireArgument, WireRequest},
 };
 use libc::{
 	MAP_FAILED, MAP_SHARED, O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, close, ftruncate, mmap, munmap,
@@ -43,15 +46,15 @@ impl PixelFormat {
 
 pub struct SharedMemory {
 	id: Id,
-	ctx: CtxType,
+	god: WeRcGod,
 	valid_pix_formats: HashSet<PixelFormat>,
 }
 
 impl SharedMemory {
-	pub fn new(id: Id, ctx: CtxType) -> Self {
+	pub fn new(id: Id, god: WeRcGod) -> Self {
 		Self {
 			id,
-			ctx,
+			god,
 			valid_pix_formats: HashSet::new(),
 		}
 	}
@@ -62,11 +65,11 @@ impl SharedMemory {
 
 	pub fn new_bound_initialized(
 		registry: &mut Registry,
-		ctx: RcCell<Context>,
+		god: RcCell<God>,
 	) -> Result<RcCell<Self>, Box<dyn Error>> {
-		let shm = Rc::new(RefCell::new(Self::new(0, Rc::downgrade(&ctx))));
+		let shm = Rc::new(RefCell::new(Self::new(0, Rc::downgrade(&god))));
 		let id =
-			ctx.borrow_mut().wlim.new_id_registered(WaylandObjectKind::SharedMemory, shm.clone());
+			god.borrow_mut().wlim.new_id_registered(WaylandObjectKind::SharedMemory, shm.clone());
 		shm.borrow_mut().id = id;
 		registry.bind(id, WaylandObjectKind::SharedMemory, 1)?;
 		Ok(shm)
@@ -85,9 +88,9 @@ impl SharedMemory {
 		}
 
 		let shmpool =
-			Rc::new(RefCell::new(SharedMemoryPool::new(0, self.ctx.clone(), name, size, fd)));
+			Rc::new(RefCell::new(SharedMemoryPool::new(0, self.god.clone(), name, size, fd)));
 		let id = self
-			.ctx
+			.god
 			.upgrade()
 			.to_wl_err()?
 			.borrow_mut()
@@ -107,7 +110,7 @@ impl SharedMemory {
 		fd: RawFd,
 		id: Id,
 	) -> Result<(), Box<dyn Error>> {
-		self.ctx.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut WireRequest {
+		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut WireRequest {
 			sender_id: self.id,
 			opcode: 0,
 			args: vec![
@@ -121,8 +124,8 @@ impl SharedMemory {
 }
 
 pub struct SharedMemoryPool {
-	id: Id,
-	ctx: CtxType,
+	pub(crate) id: Id,
+	god: WeRcGod,
 	name: CString,
 	pub size: i32,
 	pub(crate) fd: RawFd,
@@ -131,10 +134,10 @@ pub struct SharedMemoryPool {
 }
 
 impl SharedMemoryPool {
-	pub fn new(id: Id, ctx: CtxType, name: CString, size: i32, fd: RawFd) -> Self {
+	pub fn new(id: Id, god: WeRcGod, name: CString, size: i32, fd: RawFd) -> Self {
 		Self {
 			id,
-			ctx,
+			god,
 			name,
 			size,
 			fd,
@@ -210,10 +213,10 @@ impl SharedMemoryPool {
 	}
 
 	pub fn destroy(&self) -> Result<(), Box<dyn Error>> {
-		let ctx = self.ctx.upgrade().to_wl_err()?;
-		let mut ctx = ctx.borrow_mut();
-		ctx.wlmm.send_request(&mut self.wl_destroy())?;
-		ctx.wlim.free_id(self.id)?;
+		let god = self.god.upgrade().to_wl_err()?;
+		let mut god = god.borrow_mut();
+		god.wlmm.send_request(&mut self.wl_destroy())?;
+		god.wlim.free_id(self.id)?;
 		self.unmap()?;
 		self.unlink()?;
 		self.close()?;
@@ -243,7 +246,10 @@ impl SharedMemoryPool {
 		if size < self.size {
 			return Ok(pending);
 		}
-		pending.push(EventAction::DebugMessage(DebugLevel::Important, format!("shm pool | RESIZE size {size}")));
+		pending.push(EventAction::DebugMessage(
+			DebugLevel::Important,
+			format!("{} | RESIZE size {size}", self.as_str()),
+		));
 		self.unmap()?;
 		self.size = size;
 		let r = unsafe { ftruncate(self.fd, size.into()) };

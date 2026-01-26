@@ -1,12 +1,13 @@
 #![feature(unix_socket_ancillary_data)]
 #![feature(variant_count)]
+#![feature(deque_extend_front)]
 
 use std::sync::OnceLock;
 
 pub mod wayland;
 
 // ===== future me notes
-// 
+//
 // call handle_events() on Context to collect events from the pipe
 // which will call handle() on the Wlto's (wayland trait objects).
 // they get the opcode and return EventActions, like log messages,
@@ -33,6 +34,8 @@ pub const RED: &str = "\x1b[31m";
 pub const CYAN: &str = "\x1b[36m";
 pub const YELLOW: &str = "\x1b[33m";
 pub const GREEN: &str = "\x1b[32m";
+pub const WHITE: &str = "\x1b[37m";
+pub const PURPLE: &str = "\x1b[35m";
 
 pub(crate) static DEBUGLVL: OnceLock<isize> = OnceLock::new();
 
@@ -61,4 +64,3 @@ macro_rules! wlog {
 		}
 	};
 }
-
