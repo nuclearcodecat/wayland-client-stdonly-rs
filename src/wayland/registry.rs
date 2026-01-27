@@ -1,10 +1,13 @@
 use std::{collections::HashMap, error::Error};
 
-use crate::{NONE, WHITE, wayland::{
-	DebugLevel, EventAction, OpCode, WaylandError, WaylandObject, WaylandObjectKind,
-	WeRcGod,
-	wire::{FromWirePayload, Id, WireArgument, WireRequest},
-}, wlog};
+use crate::{
+	NONE, WHITE,
+	wayland::{
+		DebugLevel, EventAction, OpCode, WaylandError, WaylandObject, WaylandObjectKind, WeRcGod,
+		wire::{FromWirePayload, Id, WireArgument, WireRequest},
+	},
+	wlog,
+};
 
 pub struct Registry {
 	pub id: Id,
@@ -40,7 +43,13 @@ impl Registry {
 			.map(|(k, _)| k)
 			.copied()
 			.ok_or(WaylandError::NotInRegistry)?;
-		wlog!(DebugLevel::Important, self.kind_as_str(), format!("bind global id for {}: {}", object.as_str(), global_id), WHITE, NONE);
+		wlog!(
+			DebugLevel::Important,
+			self.kind_as_str(),
+			format!("bind global id for {}: {}", object.as_str(), global_id),
+			WHITE,
+			NONE
+		);
 		self.queue_request(WireRequest {
 			// wl_registry id
 			sender_id: self.id,

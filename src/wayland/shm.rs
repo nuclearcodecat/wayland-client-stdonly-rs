@@ -10,12 +10,14 @@ use std::{
 // std depends on libc anyway so i consider using it fair
 // i may replace this with asm in the future but that means amd64 only
 use crate::{
-	NONE, WHITE, dbug, wayland::{
+	NONE, WHITE, dbug,
+	wayland::{
 		DebugLevel, EventAction, ExpectRc, God, RcCell, WaylandError, WaylandObject,
 		WaylandObjectKind, WeRcGod,
 		registry::Registry,
 		wire::{FromWirePayload, Id, WireArgument, WireRequest},
-	}, wlog
+	},
+	wlog,
 };
 use libc::{
 	MAP_FAILED, MAP_SHARED, O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, close, ftruncate, mmap, munmap,
@@ -92,13 +94,22 @@ impl SharedMemory {
 	}
 
 	// call handle_events after!!
-	pub(crate) fn make_pool(&mut self, size: i32) -> Result<RcCell<SharedMemoryPool>, Box<dyn Error>> {
+	pub(crate) fn make_pool(
+		&mut self,
+		size: i32,
+	) -> Result<RcCell<SharedMemoryPool>, Box<dyn Error>> {
 		let name = self.make_unique_pool_name()?;
 		let fd = unsafe { shm_open(name.as_ptr(), O_RDWR | O_CREAT, 0) };
 		if fd == -1 {
 			return Err(Box::new(std::io::Error::last_os_error()));
 		}
-		wlog!(DebugLevel::Important, self.kind_as_str(), format!("new pool fd: {}", fd), WHITE, NONE);
+		wlog!(
+			DebugLevel::Important,
+			self.kind_as_str(),
+			format!("new pool fd: {}", fd),
+			WHITE,
+			NONE
+		);
 		if unsafe { ftruncate(fd, size.into()) } == -1 {
 			return Err(Box::new(std::io::Error::last_os_error()));
 		}
@@ -120,12 +131,7 @@ impl SharedMemory {
 		Ok(shmpool)
 	}
 
-	pub(crate) fn wl_create_pool(
-		&self,
-		size: i32,
-		fd: RawFd,
-		id: Id,
-	) -> WireRequest {
+	pub(crate) fn wl_create_pool(&self, size: i32, fd: RawFd, id: Id) -> WireRequest {
 		WireRequest {
 			sender_id: self.id,
 			opcode: 0,

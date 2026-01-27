@@ -1,8 +1,7 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::wayland::{
-	DebugLevel, EventAction, ExpectRc, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
-	WeRcGod,
+	EventAction, ExpectRc, RcCell, WaylandError, WaylandObject, WaylandObjectKind, WeRcGod,
 	wire::{FromWirePayload, Id},
 };
 
@@ -52,10 +51,7 @@ impl WaylandObject for Callback {
 				let data = u32::from_wire(payload)?;
 				self.done = true;
 				self.data = Some(data);
-				pending.push(EventAction::DebugMessage(
-					DebugLevel::Trivial,
-					format!("callback {} done with data {}", self.id, data),
-				));
+				pending.push(EventAction::CallbackDone(self.id, data));
 			}
 			inv => {
 				return Err(WaylandError::InvalidOpCode(inv, self.kind_as_str()).boxed());

@@ -44,11 +44,14 @@ impl Buffer {
 		{
 			let mut buf = buf.borrow_mut();
 			buf.id = id;
-			god.wlmm.queue_request(shmp.borrow().wl_create_buffer(
+			god.wlmm.queue_request(
+				shmp.borrow().wl_create_buffer(
 					id,
 					(offset, width, height, width * format.width()),
 					format,
-			), buf.kind());
+				),
+				buf.kind(),
+			);
 		}
 		buf
 	}
@@ -138,7 +141,9 @@ impl WaylandObject for Buffer {
 					format!("{} not in use anymore", self.kind_as_str()),
 				))
 			}
-			inv => return Err(WaylandError::InvalidOpCode(inv as OpCode, self.kind_as_str()).boxed()),
+			inv => {
+				return Err(WaylandError::InvalidOpCode(inv as OpCode, self.kind_as_str()).boxed());
+			}
 		};
 		Ok(pending)
 	}

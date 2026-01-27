@@ -2,7 +2,7 @@ use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::{
 	abstraction::spawner::TopLevelWindowSpawner,
-	init_logger,
+	init_logger, wait_for_sync,
 	wayland::{
 		ExpectRc, God, RcCell, WeakCell,
 		buffer::Buffer,
@@ -16,6 +16,7 @@ use crate::{
 	},
 };
 
+#[allow(dead_code)]
 pub struct App {
 	pub(crate) god: RcCell<God>,
 	pub(crate) display: RcCell<Display>,
@@ -35,10 +36,10 @@ impl App {
 		let display = Display::new(god.clone())?;
 		let registry = display.borrow_mut().make_registry()?;
 		// fill the registry
-		god.borrow_mut().handle_events()?;
+		wait_for_sync!(display, god);
 		let compositor = Compositor::new_bound(registry.clone(), god.clone())?;
 		let shm = SharedMemory::new_bound_initialized(registry.clone(), god.clone())?;
-		god.borrow_mut().handle_events()?;
+		wait_for_sync!(display, god);
 
 		Ok(Self {
 			god,
@@ -152,6 +153,7 @@ pub enum Medium {
 	Window(TopLevelWindow),
 }
 
+#[allow(dead_code)]
 pub struct TopLevelWindow {
 	pub(crate) xdg_toplevel: RcCell<XdgTopLevel>,
 	pub(crate) xdg_surface: RcCell<XdgSurface>,

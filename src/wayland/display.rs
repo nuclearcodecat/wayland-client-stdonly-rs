@@ -3,7 +3,7 @@ use crate::wayland::{
 	WaylandObjectKind, WeRcGod,
 	callback::Callback,
 	registry::Registry,
-	wire::{FromWirePayload, Id, WireArgument, WireRequest},
+	wire::{FromWirePayload, Id, QueueEntry, WireArgument, WireRequest},
 };
 use std::{cell::RefCell, error::Error, rc::Rc};
 
@@ -34,36 +34,33 @@ impl Display {
 			.wlim
 			.new_id_registered(WaylandObjectKind::Registry, reg.clone());
 		reg.borrow_mut().id = id;
-		self.wl_get_registry(id)?;
+		self.queue_request(self.wl_get_registry(id))?;
 		Ok(reg)
 	}
 
-	pub(crate) fn wl_get_registry(&mut self, id: Id) -> Result<(), Box<dyn Error>> {
-		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut WireRequest {
+	pub(crate) fn wl_get_registry(&self, id: Id) -> WireRequest {
+		WireRequest {
 			sender_id: self.id,
 			opcode: 1,
 			args: vec![WireArgument::NewId(id)],
-		})
+		}
 	}
 
-	pub(crate) fn wl_sync(&mut self, id: Id) -> Result<(), Box<dyn Error>> {
-		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut WireRequest {
+	pub(crate) fn wl_sync(&self, id: Id) -> WireRequest {
+		WireRequest {
 			sender_id: self.id,
 			opcode: 0,
 			args: vec![WireArgument::NewId(id)],
-		})
+		}
 	}
 
-	pub fn sync(&mut self) -> Result<RcCell<Callback>, Box<dyn Error>> {
+	pub(crate) fn sync(&self) -> Result<RcCell<Callback>, Box<dyn Error>> {
 		let cb = Callback::new(self.god.clone())?;
-		let id = self
-			.god
-			.upgrade()
-			.to_wl_err()?
-			.borrow_mut()
-			.wlim
-			.new_id_registered(WaylandObjectKind::Callback, cb.clone());
-		self.wl_sync(id)?;
+		let id = cb.borrow().id;
+		let god = self.god.upgrade().to_wl_err()?;
+		let mut god = god.borrow_mut();
+		god.wlmm.q.push_back(QueueEntry::Request((self.wl_sync(id), self.kind())));
+		god.wlmm.q.push_back(QueueEntry::Sync(id));
 		Ok(cb)
 	}
 }
@@ -125,4 +122,15 @@ impl WaylandObject for Display {
 	fn kind_as_str(&self) -> &'static str {
 		self.kind().as_str()
 	}
+}
+
+// both should be RcCell
+#[macro_export]
+macro_rules! wait_for_sync {
+	($display:expr, $god: expr) => {
+		let cb = $display.borrow().sync()?;
+		while !cb.borrow().done {
+			$god.borrow_mut().handle_events()?;
+		}
+	};
 }

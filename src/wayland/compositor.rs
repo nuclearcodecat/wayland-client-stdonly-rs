@@ -48,7 +48,8 @@ impl Compositor {
 		let mut god = god.borrow_mut();
 		let id = god.wlim.new_id_registered(WaylandObjectKind::Surface, surface.clone());
 		surface.borrow_mut().id = id;
-		god.wlmm.send_request(&mut self.wl_create_surface(id))?;
+		drop(god);
+		self.queue_request(self.wl_create_surface(id))?;
 		Ok(surface)
 	}
 }

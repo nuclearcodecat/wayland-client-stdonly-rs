@@ -1,11 +1,11 @@
 use std::error::Error;
 
 use crate::wayland::{
-	EventAction, ExpectRc, RcCell, WaylandError, WaylandObject, WaylandObjectKind, WeRcGod,
+	EventAction, RcCell, WaylandError, WaylandObject, WaylandObjectKind, WeRcGod,
 	buffer::Buffer,
 	callback::Callback,
 	region::Region,
-	wire::{Id, QueueEntry, WireArgument, WireRequest},
+	wire::{Id, WireArgument, WireRequest},
 };
 
 pub struct Surface {
@@ -90,10 +90,10 @@ impl Surface {
 		if let Some(buf) = &self.attached_buf {
 			let buf = buf.borrow();
 			self.queue_request(self.wl_damage_buffer(Region {
-					x: 0,
-					y: 0,
-					w: buf.width,
-					h: buf.height,
+				x: 0,
+				y: 0,
+				w: buf.width,
+				h: buf.height,
 			}))
 		} else {
 			Err(WaylandError::BufferObjectNotAttached.boxed())

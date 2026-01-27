@@ -49,6 +49,7 @@ pub fn init_logger() {
 	let _ = DEBUGLVL.set(dbug);
 }
 
+#[cfg(not(feature = "nolog"))]
 pub(crate) fn get_dbug() -> isize {
 	*DEBUGLVL.get().unwrap_or(&0)
 }
@@ -61,11 +62,13 @@ pub(crate) enum DebugLevel {
 	Error,
 	Important,
 	Trivial,
+	Verbose,
 }
 
 #[macro_export]
 macro_rules! wlog {
-	($lvl:expr, $header:expr, $msg:expr, $header_color:expr, $msg_color:expr) => {
+	($lvl:expr, $header:expr, $msg:expr, $header_color:expr, $msg_color:expr) => {{
+		#[cfg(not(feature = "nolog"))]
 		if $crate::get_dbug() >= $lvl as isize {
 			println!(
 				"{}\x1b[7m! {} !\x1b[0m{} {}{}{}",
@@ -77,7 +80,9 @@ macro_rules! wlog {
 				$crate::NONE,
 			)
 		}
-	};
+		#[cfg(feature = "nolog")]
+		let _ = (&$lvl, &$header, &$msg, &$header_color, &$msg_color);
+	}};
 }
 
 #[macro_export]

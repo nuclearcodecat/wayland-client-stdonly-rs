@@ -56,11 +56,7 @@ impl XdgWmBase {
 		self.queue_request(self.wl_pong(serial))
 	}
 
-	pub(crate) fn wl_get_xdg_surface(
-		&self,
-		wl_surface_id: Id,
-		xdg_surface_id: Id,
-	) -> WireRequest {
+	pub(crate) fn wl_get_xdg_surface(&self, wl_surface_id: Id, xdg_surface_id: Id) -> WireRequest {
 		WireRequest {
 			sender_id: self.id,
 			opcode: 2,
@@ -81,7 +77,8 @@ impl XdgWmBase {
 			wl_surface: Rc::downgrade(&wl_surface),
 		}));
 		let god = self.god.upgrade().to_wl_err()?;
-		let id = god.borrow_mut().wlim.new_id_registered(WaylandObjectKind::XdgSurface, xdgs.clone());
+		let id =
+			god.borrow_mut().wlim.new_id_registered(WaylandObjectKind::XdgSurface, xdgs.clone());
 		self.queue_request(self.wl_get_xdg_surface(surf_id, id))?;
 		xdgs.borrow_mut().id = id;
 		god.borrow_mut().xdg_surface = Some(xdgs.clone());
@@ -97,10 +94,7 @@ pub struct XdgSurface {
 }
 
 impl XdgSurface {
-	pub(crate) fn wl_get_toplevel(
-		&self,
-		xdg_toplevel_id: Id,
-	) -> WireRequest {
+	pub(crate) fn wl_get_toplevel(&self, xdg_toplevel_id: Id) -> WireRequest {
 		WireRequest {
 			sender_id: self.id,
 			opcode: 1,

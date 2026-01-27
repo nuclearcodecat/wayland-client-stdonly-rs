@@ -53,9 +53,11 @@ pub(crate) enum EventAction {
 	Error(Box<dyn Error>),
 	DebugMessage(DebugLevel, String),
 	Resize(i32, i32),
+	CallbackDone(Id, u32),
 }
 
 pub(crate) trait WaylandObject {
+	#[allow(dead_code)]
 	fn id(&self) -> Id;
 	fn god(&self) -> WeRcGod;
 	fn handle(
@@ -110,11 +112,14 @@ impl God {
 					let x: Vec<(EventAction, WaylandObjectKind, Id)> =
 						resulting_actions.into_iter().map(|x| (x, obj.0, ev.recv_id)).collect();
 					actions.extend(x);
-				},
+				}
 				QueueEntry::Request((req, kind)) => {
 					let id = req.sender_id;
 					actions.push_back((EventAction::Request(req), kind, id));
-				},
+				}
+				QueueEntry::Sync(id) => {
+					self.wlim.current_sync_id = Some(id);
+				}
 			}
 		}
 		while let Some((act, kind, id)) = actions.pop_front() {
@@ -149,7 +154,7 @@ impl God {
 					} else {
 						WHITE
 					};
-					wlog!(lvl, "wlto", msg, WHITE, tcol);
+					wlog!(lvl, kind.as_str(), msg, WHITE, tcol);
 				}
 				EventAction::Resize(w, h) => {
 					let xdgs = self.xdg_surface.clone().ok_or(WaylandError::ObjectNonExistent)?;
@@ -182,6 +187,21 @@ impl God {
 
 					surf.w = w;
 					surf.h = h;
+				}
+				EventAction::CallbackDone(id, data) => {
+					wlog!(
+						DebugLevel::Trivial,
+						"event handler",
+						format!("callback {} done with data {}", id, data),
+						CYAN,
+						NONE
+					);
+					if let Some(sid) = self.wlim.current_sync_id
+						&& sid == id
+					{
+						self.wlim.current_sync_id = None;
+						break;
+					}
 				}
 			};
 		}
@@ -233,6 +253,7 @@ pub struct IdentManager {
 	top_id: Id,
 	free: VecDeque<Id>,
 	idmap: HashMap<Id, (WaylandObjectKind, Wlto)>,
+	current_sync_id: Option<Id>,
 }
 
 impl IdentManager {
@@ -243,6 +264,13 @@ impl IdentManager {
 	}
 
 	pub(crate) fn new_id_registered(&mut self, kind: WaylandObjectKind, obj: Wlto) -> Id {
+		wlog!(
+			DebugLevel::Trivial,
+			"wlim",
+			format!("picking new id for {}", kind.as_str()),
+			YELLOW,
+			NONE
+		);
 		let id = self.free.pop_front().unwrap_or_else(|| self.new_id());
 		self.idmap.insert(id, (kind, obj));
 		id

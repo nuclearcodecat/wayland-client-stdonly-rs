@@ -1,12 +1,20 @@
 use std::{
-	collections::VecDeque, env, error::Error, fmt::Display, io::{IoSlice, Read}, os::{
+	collections::VecDeque,
+	env,
+	error::Error,
+	fmt::Display,
+	io::{IoSlice, Read},
+	os::{
 		fd::RawFd,
 		unix::net::{SocketAncillary, UnixStream},
-	}, path::PathBuf
+	},
+	path::PathBuf,
 };
 
 use crate::{
-	GREEN, NONE, RED, wayland::{DebugLevel, OpCode, WaylandError, WaylandObjectKind}, wlog
+	GREEN, NONE, RED,
+	wayland::{DebugLevel, OpCode, WaylandError, WaylandObjectKind},
+	wlog,
 };
 
 pub type Id = u32;
@@ -57,6 +65,7 @@ pub enum WireArgumentKind {
 pub(crate) enum QueueEntry {
 	EventResponse(WireEventRaw),
 	Request((WireRequest, WaylandObjectKind)),
+	Sync(Id),
 }
 
 #[derive(Debug)]
@@ -70,7 +79,13 @@ impl Drop for MessageManager {
 		wlog!(DebugLevel::Important, "wlmm", "called drop for MessageManager", GREEN, NONE);
 		let r = self.discon();
 		if r.is_err() {
-			wlog!(DebugLevel::Error, "wlmm", format!("failed to drop MessageManager\n{:#?}", r), RED, RED);
+			wlog!(
+				DebugLevel::Error,
+				"wlmm",
+				format!("failed to drop MessageManager\n{:#?}", r),
+				RED,
+				RED
+			);
 		}
 	}
 }
@@ -102,7 +117,12 @@ impl Display for WireDebugMessage<'_> {
 }
 
 impl WireRequest {
-	fn make_debug(&self, id: Option<Id>, kind: Option<WaylandObjectKind>, opcode_name: Option<String>) -> WireDebugMessage<'_> {
+	fn make_debug(
+		&self,
+		id: Option<Id>,
+		kind: Option<WaylandObjectKind>,
+		opcode_name: Option<String>,
+	) -> WireDebugMessage<'_> {
 		WireDebugMessage {
 			opcode: (opcode_name, self.opcode),
 			object: (kind, id),
@@ -141,17 +161,19 @@ impl MessageManager {
 		Ok(self.sock.shutdown(std::net::Shutdown::Both)?)
 	}
 
-	pub fn send_request_logged(&self, msg: &mut WireRequest, id: Option<Id>, kind: Option<WaylandObjectKind>, opcode_name: Option<String>) -> Result<(), Box<dyn Error>> {
+	pub fn send_request_logged(
+		&self,
+		msg: &mut WireRequest,
+		id: Option<Id>,
+		kind: Option<WaylandObjectKind>,
+		opcode_name: Option<String>,
+	) -> Result<(), Box<dyn Error>> {
 		let dbugmsg = msg.make_debug(id, kind, opcode_name);
 		wlog!(DebugLevel::Trivial, "wlmm", format!("{}", dbugmsg), GREEN, NONE);
 		self.send_request(msg)
 	}
 
-	// note: this is an old function that's not meant to be used directly.
-	// replace every use with send_request_logged, then start using the q,
-	// which is the more organized way
 	pub fn send_request(&self, msg: &mut WireRequest) -> Result<(), Box<dyn Error>> {
-		wlog!(DebugLevel::Trivial, "wlmm", format!("sending request {:?}", msg), GREEN, NONE);
 		let mut buf: Vec<u8> = vec![];
 		buf.append(&mut Vec::from(msg.sender_id.to_ne_bytes()));
 		buf.append(&mut vec![0, 0, 0, 0]);
@@ -178,6 +200,7 @@ impl MessageManager {
 		let mut ancillary_buf = [0; 128];
 		let mut ancillary = SocketAncillary::new(&mut ancillary_buf);
 		ancillary.add_fds(&fds);
+		wlog!(DebugLevel::Verbose, "wlmm", format!("buf: {buf:?}"), GREEN, NONE);
 		self.sock.send_vectored_with_ancillary(&[IoSlice::new(&buf)], &mut ancillary)?;
 		Ok(())
 	}
