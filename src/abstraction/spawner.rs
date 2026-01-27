@@ -22,35 +22,42 @@ pub struct TopLevelWindowSpawner<'a> {
 }
 
 impl<'a> TopLevelWindowSpawner<'a> {
-	pub fn with_app_id(&mut self, app_id: String) {
-		self.app_id = Some(app_id);
+	pub fn with_app_id(mut self, app_id: &str) -> Self {
+		self.app_id = Some(String::from(app_id));
+		self
 	}
 
-	pub fn with_title(&mut self, title: String) {
-		self.title = Some(title);
+	pub fn with_title(mut self, title: &str) -> Self {
+		self.title = Some(String::from(title));
+		self
 	}
 
-	pub fn with_width(&mut self, width: i32) {
+	pub fn with_width(mut self, width: i32) -> Self {
 		self.width = Some(width);
+		self
 	}
 
-	pub fn with_height(&mut self, height: i32) {
+	pub fn with_height(mut self, height: i32) -> Self {
 		self.height = Some(height);
+		self
 	}
 
-	pub fn with_pixel_format(&mut self, pf: PixelFormat) {
+	pub fn with_pixel_format(mut self, pf: PixelFormat) -> Self {
 		self.pf = Some(pf);
+		self
 	}
 
-	pub fn with_premade_surface(&mut self, wl_surface: RcCell<Surface>) {
+	pub fn with_premade_surface(mut self, wl_surface: RcCell<Surface>) -> Self {
 		self.sur = Some(wl_surface);
+		self
 	}
 
-	pub fn with_close_callback<F>(&mut self, cb: F)
+	pub fn with_close_callback<F>(mut self, cb: F) -> Self
 	where
 		F: FnMut() -> bool + 'static,
 	{
 		self.close_cb = Some(Box::new(cb));
+		self
 	}
 
 	pub(crate) fn new(wl_surface: Option<RcCell<Surface>>, parent: &'a mut App) -> Self {

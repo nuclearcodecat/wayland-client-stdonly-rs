@@ -4,7 +4,7 @@ use std::{
 	io::{BufRead, BufReader, Read},
 };
 
-use wayland_raw::abstraction::app::{App, TopLevelWindow};
+use waytinier::abstraction::app::{App, TopLevelWindow};
 
 struct AppState {
 	img_w: usize,
@@ -14,7 +14,10 @@ struct AppState {
 
 fn main() -> Result<(), Box<dyn Error>> {
 	let mut app = App::new()?;
-	let window = TopLevelWindow::spawner(&mut app).spawn()?;
+	let window = TopLevelWindow::spawner(&mut app)
+		.with_app_id("waytinier-demo")
+		.with_title("waytinier demo")
+		.spawn()?;
 	app.push_presenter(window)?;
 
 	let (img_w, img_h, machine) = parse_pix("pix.ppm")?;

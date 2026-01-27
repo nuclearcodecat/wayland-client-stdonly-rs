@@ -45,7 +45,7 @@ pub const PURPLE: &str = "\x1b[35m";
 pub(crate) static DEBUGLVL: OnceLock<isize> = OnceLock::new();
 
 pub fn init_logger() {
-	let dbug: isize = std::env::var("DEBUGLVL").unwrap_or(String::from("0")).parse().unwrap_or(0);
+	let dbug: isize = std::env::var("WAYTINIER_DEBUGLVL").unwrap_or(String::from("2")).parse().unwrap_or(2);
 	let _ = DEBUGLVL.set(dbug);
 }
 
