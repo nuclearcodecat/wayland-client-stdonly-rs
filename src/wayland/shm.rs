@@ -36,7 +36,7 @@ impl PixelFormat {
 		}
 	}
 
-	pub fn width(&self) -> usize {
+	pub fn width(&self) -> i32 {
 		match self {
 			Self::Argb888 => 4,
 			Self::Xrgb888 => 4,
@@ -51,7 +51,7 @@ pub struct SharedMemory {
 }
 
 impl SharedMemory {
-	pub fn new(id: Id, god: WeRcGod) -> Self {
+	pub(crate) fn new(id: Id, god: WeRcGod) -> Self {
 		Self {
 			id,
 			god,
@@ -64,14 +64,14 @@ impl SharedMemory {
 	}
 
 	pub fn new_bound_initialized(
-		registry: &mut Registry,
+		registry: RcCell<Registry>,
 		god: RcCell<God>,
 	) -> Result<RcCell<Self>, Box<dyn Error>> {
 		let shm = Rc::new(RefCell::new(Self::new(0, Rc::downgrade(&god))));
 		let id =
 			god.borrow_mut().wlim.new_id_registered(WaylandObjectKind::SharedMemory, shm.clone());
 		shm.borrow_mut().id = id;
-		registry.bind(id, WaylandObjectKind::SharedMemory, 1)?;
+		registry.borrow_mut().bind(id, WaylandObjectKind::SharedMemory, 1)?;
 		Ok(shm)
 	}
 

@@ -28,6 +28,9 @@ pub mod wayland;
 //
 // if init_logger() is not called in the bin, the debug level will
 // always be 0 (none)
+//
+// DO NOT ATTACH A BUFFER BEFORE GETTING A CORRECT SIZE FROM THE
+// COMPOSITOR, YOU WASTED HOURS
 
 pub const NONE: &str = "\x1b[0m";
 pub const RED: &str = "\x1b[31m";

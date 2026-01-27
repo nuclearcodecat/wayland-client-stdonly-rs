@@ -13,7 +13,7 @@ pub struct Compositor {
 }
 
 impl Compositor {
-	pub fn new(id: Id, god: WeRcGod) -> Self {
+	pub(crate) fn new(id: Id, god: WeRcGod) -> Self {
 		Self {
 			id,
 			god,
@@ -21,7 +21,7 @@ impl Compositor {
 	}
 
 	pub fn new_bound(
-		registry: &mut Registry,
+		registry: RcCell<Registry>,
 		god: RcCell<God>,
 	) -> Result<RcCell<Self>, Box<dyn Error>> {
 		let compositor = Rc::new(RefCell::new(Self::new(0, Rc::downgrade(&god))));
@@ -30,7 +30,7 @@ impl Compositor {
 			.wlim
 			.new_id_registered(WaylandObjectKind::Compositor, compositor.clone());
 		compositor.borrow_mut().id = id;
-		registry.bind(id, WaylandObjectKind::Compositor, 5)?;
+		registry.borrow_mut().bind(id, WaylandObjectKind::Compositor, 5)?;
 		Ok(compositor)
 	}
 

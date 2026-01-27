@@ -14,12 +14,13 @@ pub struct XdgWmBase {
 }
 
 impl XdgWmBase {
-	pub fn new_bound(registry: &mut Registry) -> Result<RcCell<Self>, Box<dyn Error>> {
+	pub fn new_bound(registry: RcCell<Registry>) -> Result<RcCell<Self>, Box<dyn Error>> {
+		let mut reg = registry.borrow_mut();
 		let obj = Rc::new(RefCell::new(Self {
 			id: 0,
-			god: registry.god.clone(),
+			god: reg.god.clone(),
 		}));
-		let id = registry
+		let id = reg
 			.god
 			.upgrade()
 			.to_wl_err()?
@@ -27,7 +28,7 @@ impl XdgWmBase {
 			.wlim
 			.new_id_registered(WaylandObjectKind::XdgWmBase, obj.clone());
 		obj.borrow_mut().id = id;
-		registry.bind(id, WaylandObjectKind::XdgWmBase, 1)?;
+		reg.bind(id, WaylandObjectKind::XdgWmBase, 1)?;
 		Ok(obj)
 	}
 
@@ -155,9 +156,9 @@ impl XdgTopLevel {
 		})
 	}
 
-	pub fn set_app_id(&mut self, id: String) -> Result<(), Box<dyn Error>> {
-		self.appid = Some(id.clone());
-		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_set_app_id(id)?)
+	pub fn set_app_id(&mut self, id: &str) -> Result<(), Box<dyn Error>> {
+		self.appid = Some(id.to_string());
+		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_set_app_id(id.to_string())?)
 	}
 
 	pub(crate) fn wl_set_title(&self, id: String) -> Result<WireRequest, Box<dyn Error>> {
@@ -168,9 +169,9 @@ impl XdgTopLevel {
 		})
 	}
 
-	pub fn set_title(&mut self, id: String) -> Result<(), Box<dyn Error>> {
-		self.title = Some(id.clone());
-		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_set_title(id)?)
+	pub fn set_title(&mut self, id: &str) -> Result<(), Box<dyn Error>> {
+		self.title = Some(id.to_string());
+		self.god.upgrade().to_wl_err()?.borrow().wlmm.send_request(&mut self.wl_set_title(id.to_string())?)
 	}
 }
 

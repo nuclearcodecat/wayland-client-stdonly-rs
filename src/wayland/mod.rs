@@ -83,7 +83,7 @@ pub struct God {
 }
 
 impl God {
-	pub fn new(wlmm: MessageManager, wlim: IdentManager) -> Self {
+	pub(crate) fn new(wlmm: MessageManager, wlim: IdentManager) -> Self {
 		Self {
 			wlmm,
 			wlim,
@@ -333,7 +333,8 @@ impl fmt::Display for WaylandError {
 
 impl Error for WaylandError {}
 
-pub(crate) trait ExpectRc<T> {
+// return crate later when finished with the spawner
+pub trait ExpectRc<T> {
 	fn to_wl_err(self) -> Result<Rc<T>, Box<dyn Error>>;
 }
 
