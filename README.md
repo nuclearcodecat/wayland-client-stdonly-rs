@@ -9,6 +9,7 @@ with these cargo optimizations for size enabled, i managed to get the binary siz
  - lto set to »fat«
  - only one codegen unit enabled
  - panic unwinding disabled
+
 interestingly, setting the opt-level to »s« **increased** the "raw" binary's size by 4KiB and »z« increased it by **50KiB**!  
 these settings increased the build times from ~0.7s to ~3.6s  
 
