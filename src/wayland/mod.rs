@@ -2,7 +2,7 @@ use crate::{
 	CYAN, DebugLevel, NONE, RED, WHITE, YELLOW,
 	wayland::{
 		wire::{Id, MessageManager, QueueEntry, WireRequest},
-		xdgshell::XdgSurface,
+		xdg_shell::xdg_surface::XdgSurface,
 	},
 	wlog,
 };
@@ -22,7 +22,7 @@ pub mod registry;
 pub mod shm;
 pub mod surface;
 pub mod wire;
-pub mod xdgshell;
+pub mod xdg_shell;
 
 pub type OpCode = usize;
 
@@ -52,7 +52,7 @@ pub(crate) enum EventAction {
 	IdDeletion(Id),
 	Error(Box<dyn Error>),
 	DebugMessage(DebugLevel, String),
-	Resize(i32, i32),
+	Resize(i32, i32, WeakCell<XdgSurface>),
 	CallbackDone(Id, u32),
 }
 
@@ -78,7 +78,6 @@ pub type WeRcGod = Weak<RefCell<God>>;
 pub struct God {
 	wlmm: MessageManager,
 	wlim: IdentManager,
-	xdg_surface: Option<RcCell<XdgSurface>>,
 }
 
 impl God {
@@ -86,7 +85,6 @@ impl God {
 		Self {
 			wlmm,
 			wlim,
-			xdg_surface: None,
 		}
 	}
 
@@ -156,8 +154,8 @@ impl God {
 					};
 					wlog!(lvl, kind.as_str(), msg, WHITE, tcol);
 				}
-				EventAction::Resize(w, h) => {
-					let xdgs = self.xdg_surface.clone().ok_or(WaylandError::ObjectNonExistent)?;
+				EventAction::Resize(w, h, xdgs) => {
+					let xdgs = xdgs.upgrade().to_wl_err()?;
 					let xdgs = xdgs.borrow_mut();
 					let surf = xdgs.wl_surface.upgrade().to_wl_err()?;
 					let mut surf = surf.borrow_mut();

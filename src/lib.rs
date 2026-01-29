@@ -8,6 +8,9 @@ use std::sync::OnceLock;
 pub mod abstraction;
 pub mod wayland;
 
+// todo
+// - impl Drop for every object and make sure the struct fields are declared correctly
+
 // ===== future me notes
 //
 // call handle_events() on Context to collect events from the pipe
@@ -45,7 +48,8 @@ pub const PURPLE: &str = "\x1b[35m";
 pub(crate) static DEBUGLVL: OnceLock<isize> = OnceLock::new();
 
 pub fn init_logger() {
-	let dbug: isize = std::env::var("WAYTINIER_DEBUGLVL").unwrap_or(String::from("2")).parse().unwrap_or(2);
+	let dbug: isize =
+		std::env::var("WAYTINIER_DEBUGLVL").unwrap_or(String::from("2")).parse().unwrap_or(2);
 	let _ = DEBUGLVL.set(dbug);
 }
 

@@ -12,20 +12,21 @@ use crate::{
 		registry::Registry,
 		shm::{PixelFormat, SharedMemory, SharedMemoryPool},
 		surface::Surface,
-		xdgshell::{XdgSurface, XdgTopLevel, XdgWmBase},
+		xdg_shell::{xdg_surface::XdgSurface, xdg_toplevel::XdgTopLevel, xdg_wm_base::XdgWmBase},
 	},
 };
 
 #[allow(dead_code)]
 pub struct App {
-	pub(crate) god: RcCell<God>,
-	pub(crate) display: RcCell<Display>,
-	pub(crate) registry: RcCell<Registry>,
-	pub(crate) compositor: RcCell<Compositor>,
+	pub(crate) pres_id_ctr: usize,
+	pub(crate) presenters: Vec<(usize, RcCell<Presenter>)>,
 	pub(crate) surfaces: Vec<RcCell<Surface>>,
 	pub(crate) shm: RcCell<SharedMemory>,
-	pub(crate) presenters: Vec<RcCell<Presenter>>,
+	pub(crate) compositor: RcCell<Compositor>,
+	pub(crate) registry: RcCell<Registry>,
+	pub(crate) display: RcCell<Display>,
 	pub finished: bool,
+	pub(crate) god: RcCell<God>,
 }
 
 impl App {
@@ -50,21 +51,20 @@ impl App {
 			shm,
 			presenters: vec![],
 			finished: false,
+			pres_id_ctr: 0,
 		})
 	}
 
-	pub fn push_presenter(
-		&mut self,
-		presenter: Presenter,
-	) -> Result<RcCell<Presenter>, Box<dyn Error>> {
+	pub fn push_presenter(&mut self, presenter: Presenter) -> Result<usize, Box<dyn Error>> {
 		match &presenter.medium {
 			Medium::Window(tlw) => {
 				tlw.surface.upgrade().to_wl_err()?.borrow_mut().commit()?;
 			}
 		};
 		let presenter = Rc::new(RefCell::new(presenter));
-		self.presenters.push(presenter.clone());
-		Ok(presenter)
+		self.pres_id_ctr += 1;
+		self.presenters.push((self.pres_id_ctr, presenter.clone()));
+		Ok(self.pres_id_ctr)
 	}
 
 	pub fn make_surface(&mut self) -> Result<RcCell<Surface>, Box<dyn Error>> {
@@ -75,38 +75,38 @@ impl App {
 	where
 		F: FnMut(&mut S, Snapshot),
 	{
-		for pres in &self.presenters {
-			let mut pres = pres.borrow_mut();
+		for (id, presenter) in &self.presenters {
+			let mut presenter = presenter.borrow_mut();
 			// assume top level window for now
-			let Medium::Window(ref mut pres) = pres.medium;
+			let Medium::Window(ref mut window) = presenter.medium;
 
-			let cb = &mut pres.frame_cb;
-			let frame = &mut pres.frame;
+			let cb = &mut window.frame_cb;
+			let frame = &mut window.frame;
 			self.god.borrow_mut().handle_events()?;
 
 			// check if user wants to close window - the cb might not be a good idea
-			if pres.xdg_toplevel.borrow().close_requested && (pres.close_cb)() {
-				self.finished = true;
-				break;
+			if window.xdg_toplevel.borrow().close_requested && (window.close_cb)() {
+				presenter.finished = true;
+				continue;
 			};
-			if pres.xdg_surface.borrow().is_configured {
+			if window.xdg_surface.borrow().is_configured {
 				let ready = match &cb.clone() {
 					Some(cb) => cb.borrow().done,
 					None => true,
 				};
 
-				let surf = pres.surface.upgrade().to_wl_err()?;
+				let surf = window.surface.upgrade().to_wl_err()?;
 				let mut surf = surf.borrow_mut();
 				if surf.attached_buf.is_none() {
 					let pf = PixelFormat::Xrgb888;
 					let width = pf.width();
 					let buf = Buffer::new_initalized(
-						pres.shm_pool.clone(),
+						window.shm_pool.clone(),
 						(0, surf.w, surf.h),
 						pf,
 						self.god.clone(),
 					);
-					pres.shm_pool.borrow_mut().resize_if_larger(surf.w * surf.h * width)?;
+					window.shm_pool.borrow_mut().resize_if_larger(surf.w * surf.h * width)?;
 					surf.attach_buffer_obj(buf)?;
 					surf.commit()?;
 					drop(surf);
@@ -120,7 +120,7 @@ impl App {
 					*frame = frame.wrapping_add(1);
 
 					unsafe {
-						let slice = &mut *pres.shm_pool.borrow_mut().slice.unwrap();
+						let slice = &mut *window.shm_pool.borrow_mut().slice.unwrap();
 						let buf = surf.attached_buf.clone().ok_or("no buffer")?;
 						let buf = buf.borrow();
 
@@ -130,6 +130,7 @@ impl App {
 							h: buf.height,
 							pf: buf.format,
 							frame: *frame,
+							presenter_id: *id,
 						};
 
 						render_fun(state, ss);
@@ -140,13 +141,16 @@ impl App {
 				}
 			}
 		}
+		if self.presenters.iter().all(|(_, p)| p.borrow().finished) {
+			self.finished = true;
+		};
 		Ok(self.finished)
 	}
 }
 
 pub struct Presenter {
-	pub finished: bool,
 	pub(crate) medium: Medium,
+	pub finished: bool,
 }
 
 pub enum Medium {
@@ -178,4 +182,5 @@ pub struct Snapshot<'a> {
 	pub h: i32,
 	pub pf: PixelFormat,
 	pub frame: usize,
+	pub presenter_id: usize,
 }

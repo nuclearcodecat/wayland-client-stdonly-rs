@@ -6,7 +6,7 @@ use crate::{
 		RcCell,
 		shm::PixelFormat,
 		surface::Surface,
-		xdgshell::{XdgTopLevel, XdgWmBase},
+		xdg_shell::{xdg_toplevel::XdgTopLevel, xdg_wm_base::XdgWmBase},
 	},
 };
 

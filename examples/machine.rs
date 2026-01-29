@@ -18,7 +18,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 		.with_app_id("waytinier-demo")
 		.with_title("waytinier demo")
 		.spawn()?;
-	app.push_presenter(window)?;
+	let window1_id = app.push_presenter(window)?;
+	let window = TopLevelWindow::spawner(&mut app)
+		.with_app_id("waytinier-demo2")
+		.with_title("waytinier demo2")
+		.spawn()?;
+	let window2_id = app.push_presenter(window)?;
 
 	let (img_w, img_h, machine) = parse_pix("pix.ppm")?;
 	let mut state = AppState {
@@ -29,31 +34,34 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	loop {
 		let done = app.work(&mut state, |state, ss| {
-			let (r, g, b) = hsv_to_rgb((ss.frame % 360) as f64, 1.0, 1.0);
-			let start_x = ss.w as isize / 2 - state.img_w as isize / 2;
-			let start_y = ss.h as isize / 2 - state.img_h as isize / 2;
+			if ss.presenter_id == window1_id {
+				let (r, g, b) = hsv_to_rgb((ss.frame % 360) as f64, 1.0, 1.0);
+				let start_x = ss.w as isize / 2 - state.img_w as isize / 2;
+				let start_y = ss.h as isize / 2 - state.img_h as isize / 2;
 
-			for y in 0..ss.h as usize {
-				for x in 0..ss.w as usize {
-					let surface_ix = (ss.w as usize * y + x) * 4;
+				for y in 0..ss.h as usize {
+					for x in 0..ss.w as usize {
+						let surface_ix = (ss.w as usize * y + x) * 4;
 
-					let rel_x = x as isize - start_x;
-					let rel_y = y as isize - start_y;
+						let rel_x = x as isize - start_x;
+						let rel_y = y as isize - start_y;
 
-					if rel_x >= 0
-						&& rel_x < state.img_w as isize
-						&& rel_y >= 0 && rel_y < state.img_h as isize
-					{
-						let img_ix = (rel_y as usize * img_w + rel_x as usize) * 3;
-						ss.buf[surface_ix + 2] = state.machine[img_ix];
-						ss.buf[surface_ix + 1] = state.machine[img_ix + 1];
-						ss.buf[surface_ix] = state.machine[img_ix + 2];
-					} else {
-						ss.buf[surface_ix] = b.wrapping_sub(x as u8);
-						ss.buf[surface_ix + 1] = g.wrapping_add(y as u8);
-						ss.buf[surface_ix + 2] = r.wrapping_shl(x as u32);
+						if rel_x >= 0
+							&& rel_x < state.img_w as isize
+							&& rel_y >= 0 && rel_y < state.img_h as isize
+						{
+							let img_ix = (rel_y as usize * img_w + rel_x as usize) * 3;
+							ss.buf[surface_ix + 2] = state.machine[img_ix];
+							ss.buf[surface_ix + 1] = state.machine[img_ix + 1];
+							ss.buf[surface_ix] = state.machine[img_ix + 2];
+						} else {
+							ss.buf[surface_ix] = b.wrapping_sub(x as u8);
+							ss.buf[surface_ix + 1] = g.wrapping_add(y as u8);
+							ss.buf[surface_ix + 2] = r.wrapping_shl(x as u32);
+						}
 					}
 				}
+			} else if ss.presenter_id == window2_id {
 			}
 		})?;
 		if done {

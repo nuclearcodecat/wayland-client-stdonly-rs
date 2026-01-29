@@ -2,7 +2,7 @@ waytinier is a tiny experimental wayland client library for rust.
 it is dependant on nothing but std and libc (which std also depends on).  
 i will probably definitely absolutely 99.9%ly not release it on crates  
 
-waytinier is tiny by design. the _machine_ example can open a window and draw an image while weighing a bit over 650KiB (with default cargo/rustc settings)  
+waytinier is tiny by design. the _machine_ example can (at the time of testing) open a window and draw an image while weighing a bit over 650KiB (with default cargo/rustc settings)  
 with these cargo optimizations for size enabled, i managed to get the binary size down to ~380KiB:  
  - elf stripping enabled
  - opt level set to »z«
