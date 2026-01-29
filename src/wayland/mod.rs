@@ -76,8 +76,8 @@ pub(crate) trait WaylandObject {
 pub type WeRcGod = Weak<RefCell<God>>;
 
 pub struct God {
-	wlmm: MessageManager,
-	wlim: IdentManager,
+	pub(crate) wlim: IdentManager,
+	pub(crate) wlmm: MessageManager,
 }
 
 impl God {
@@ -247,11 +247,11 @@ pub type RcCell<T> = Rc<RefCell<T>>;
 pub type WeakCell<T> = Weak<RefCell<T>>;
 
 #[derive(Default)]
-pub struct IdentManager {
-	top_id: Id,
-	free: VecDeque<Id>,
-	idmap: HashMap<Id, (WaylandObjectKind, Wlto)>,
-	current_sync_id: Option<Id>,
+pub(crate) struct IdentManager {
+	pub(crate) top_id: Id,
+	pub(crate) free: VecDeque<Id>,
+	pub(crate) idmap: HashMap<Id, (WaylandObjectKind, Wlto)>,
+	pub(crate) current_sync_id: Option<Id>,
 }
 
 impl IdentManager {
@@ -375,5 +375,11 @@ impl<T> ExpectRc<T> for Option<Rc<T>> {
 			Some(x) => Ok(x),
 			None => Err(WaylandError::ObjectNonExistentInWeak.boxed()),
 		}
+	}
+}
+
+impl Drop for God {
+	fn drop(&mut self) {
+		wlog!(DebugLevel::Important, "god", "dropping self", RED, CYAN);
 	}
 }

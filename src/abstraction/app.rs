@@ -1,19 +1,9 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::{
-	abstraction::spawner::TopLevelWindowSpawner,
-	init_logger, wait_for_sync,
-	wayland::{
-		ExpectRc, God, RcCell, WeakCell,
-		buffer::Buffer,
-		callback::Callback,
-		compositor::Compositor,
-		display::Display,
-		registry::Registry,
-		shm::{PixelFormat, SharedMemory, SharedMemoryPool},
-		surface::Surface,
-		xdg_shell::{xdg_surface::XdgSurface, xdg_toplevel::XdgTopLevel, xdg_wm_base::XdgWmBase},
-	},
+	CYAN, DebugLevel, RED, abstraction::spawner::TopLevelWindowSpawner, dbug, init_logger, wait_for_sync, wayland::{
+		ExpectRc, God, RcCell, WeRcGod, WeakCell, buffer::Buffer, callback::Callback, compositor::Compositor, display::Display, registry::Registry, shm::{PixelFormat, SharedMemory, SharedMemoryPool}, surface::Surface, xdg_shell::{xdg_surface::XdgSurface, xdg_toplevel::XdgTopLevel, xdg_wm_base::XdgWmBase}
+	}, wlog
 };
 
 #[allow(dead_code)]
@@ -141,6 +131,7 @@ impl App {
 				}
 			}
 		}
+		self.presenters.retain(|pres| !pres.1.borrow().finished);
 		if self.presenters.iter().all(|(_, p)| p.borrow().finished) {
 			self.finished = true;
 		};
@@ -168,6 +159,7 @@ pub struct TopLevelWindow {
 	pub(crate) close_cb: Box<dyn FnMut() -> bool>,
 	pub(crate) frame: usize,
 	pub(crate) frame_cb: Option<RcCell<Callback>>,
+	pub(crate) god: WeRcGod,
 }
 
 impl TopLevelWindow {
@@ -183,4 +175,25 @@ pub struct Snapshot<'a> {
 	pub pf: PixelFormat,
 	pub frame: usize,
 	pub presenter_id: usize,
+}
+
+impl Drop for App {
+	fn drop(&mut self) {
+		let mut god = self.god.borrow_mut();
+		let len = god.wlim.idmap.len();
+		wlog!(DebugLevel::Important, "app", format!("dropping self and clearing wlim's idmap's {len} objects"), RED, CYAN);
+		god.wlim.idmap.clear();
+	}
+}
+
+impl Drop for TopLevelWindow {
+	fn drop(&mut self) {
+		wlog!(DebugLevel::Important, "toplevelwindow", "dropping self and removing xdg_* from idmap", RED, CYAN);
+		let god = self.god.upgrade().unwrap();
+		let mut god = god.borrow_mut();
+		let idmap = &mut god.wlim.idmap;
+		idmap.remove(&self.xdg_toplevel.borrow().id);
+		idmap.remove(&self.xdg_surface.borrow().id);
+		idmap.remove(&self.xdg_wm_base.borrow().id);
+	}
 }

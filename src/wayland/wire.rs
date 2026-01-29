@@ -12,9 +12,7 @@ use std::{
 };
 
 use crate::{
-	GREEN, NONE, RED,
-	wayland::{DebugLevel, OpCode, WaylandError, WaylandObjectKind},
-	wlog,
+	GREEN, NONE, RED, YELLOW, CYAN, wayland::{DebugLevel, IdentManager, OpCode, WaylandError, WaylandObjectKind}, wlog
 };
 
 pub type Id = u32;
@@ -76,17 +74,20 @@ pub(crate) struct MessageManager {
 
 impl Drop for MessageManager {
 	fn drop(&mut self) {
-		wlog!(DebugLevel::Important, "wlmm", "called drop for MessageManager", GREEN, NONE);
-		let r = self.discon();
-		if r.is_err() {
-			wlog!(
-				DebugLevel::Error,
-				"wlmm",
-				format!("failed to drop MessageManager\n{:#?}", r),
-				RED,
-				RED
-			);
+		wlog!(DebugLevel::Important, "wlmm", "destroying self", GREEN, CYAN);
+		if let Err(er) = self.discon() {
+			wlog!(DebugLevel::Error, "wlmm", format!("failed to discon: {er}"), GREEN, RED);
+		} else {
+			wlog!(DebugLevel::Error, "wlmm", "discon was successful", GREEN, CYAN);
 		}
+	}
+}
+
+impl Drop for IdentManager {
+	fn drop(&mut self) {
+		let len = self.idmap.len();
+		self.idmap.clear();
+		wlog!(DebugLevel::Important, "wlim", format!("destroying self, cleared {len} objects from the map"), YELLOW, CYAN);
 	}
 }
 

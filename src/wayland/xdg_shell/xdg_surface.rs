@@ -1,11 +1,11 @@
 use std::error::Error;
 
-use crate::wayland::{
+use crate::{make_drop_impl, wayland::{
 	DebugLevel, EventAction, OpCode, WaylandError, WaylandObject, WaylandObjectKind, WeRcGod,
 	WeakCell,
 	surface::Surface,
 	wire::{FromWirePayload, Id, WireArgument, WireRequest},
-};
+}};
 
 pub struct XdgSurface {
 	pub(crate) god: WeRcGod,
@@ -28,6 +28,14 @@ impl XdgSurface {
 			sender_id: self.id,
 			opcode: 4,
 			args: vec![WireArgument::UnInt(serial)],
+		}
+	}
+
+	pub(crate) fn wl_destroy(&self) -> WireRequest {
+		WireRequest {
+			sender_id: self.id,
+			opcode: 0,
+			args: vec![],
 		}
 	}
 }
@@ -71,3 +79,5 @@ impl WaylandObject for XdgSurface {
 		self.kind().as_str()
 	}
 }
+
+make_drop_impl!(XdgSurface, wl_destroy);

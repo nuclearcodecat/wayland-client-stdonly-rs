@@ -1,12 +1,12 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
-use crate::wayland::{
+use crate::{CYAN, DebugLevel, RED, WHITE, make_drop_impl, wayland::{
 	EventAction, ExpectRc, OpCode, RcCell, WaylandError, WaylandObject, WaylandObjectKind, WeRcGod,
 	registry::Registry,
 	surface::Surface,
 	wire::{FromWirePayload, Id, WireArgument, WireRequest},
 	xdg_shell::xdg_surface::XdgSurface,
-};
+}, wlog};
 
 pub struct XdgWmBase {
 	pub id: Id,
@@ -119,3 +119,5 @@ impl WaylandObject for XdgWmBase {
 		self.kind().as_str()
 	}
 }
+
+make_drop_impl!(XdgWmBase, wl_destroy);

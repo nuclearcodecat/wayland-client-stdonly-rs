@@ -1,11 +1,11 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
-use crate::wayland::{
+use crate::{make_drop_impl, wayland::{
 	DebugLevel, EventAction, God, OpCode, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
 	WeRcGod, WeakCell,
 	wire::{FromWirePayload, Id, WireArgument, WireRequest},
 	xdg_shell::xdg_surface::XdgSurface,
-};
+}};
 
 pub struct XdgTopLevel {
 	pub(crate) id: Id,
@@ -63,6 +63,14 @@ impl XdgTopLevel {
 	pub fn set_title(&mut self, id: &str) -> Result<(), Box<dyn Error>> {
 		self.title = Some(id.to_string());
 		self.queue_request(self.wl_set_title(id.to_string()))
+	}
+
+	pub(crate) fn wl_destroy(&self) -> WireRequest {
+		WireRequest {
+			sender_id: self.id,
+			opcode: 0,
+			args: vec![],
+		}
 	}
 }
 
@@ -158,3 +166,5 @@ impl WaylandObject for XdgTopLevel {
 		self.kind().as_str()
 	}
 }
+
+make_drop_impl!(XdgTopLevel, wl_destroy);

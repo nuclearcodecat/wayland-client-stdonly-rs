@@ -110,6 +110,7 @@ impl<'a> TopLevelWindowSpawner<'a> {
 				close_cb,
 				frame: 0,
 				frame_cb: None,
+				god: Rc::downgrade(&self.parent.god),
 			}),
 		})
 	}
