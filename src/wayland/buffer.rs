@@ -73,7 +73,7 @@ impl Buffer {
 	}
 
 	#[allow(clippy::type_complexity)]
-	pub(crate) fn resize(
+	pub(crate) fn get_resize_actions(
 		&mut self,
 		new_buf_id: Id,
 		(w, h): (i32, i32),
@@ -93,7 +93,7 @@ impl Buffer {
 
 		let shmp = self.shm_pool.upgrade().to_wl_err()?;
 		let mut shmp = shmp.borrow_mut();
-		let shm_actions = shmp.resize_if_larger(w * h * self.format.width())?;
+		let shm_actions = shmp.get_resize_actions_if_larger(w * h * self.format.width())?;
 		pending.append(
 			&mut shm_actions
 				.into_iter()

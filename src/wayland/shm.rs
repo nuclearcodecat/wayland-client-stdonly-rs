@@ -249,7 +249,7 @@ impl SharedMemoryPool {
 		Ok(())
 	}
 
-	pub(crate) fn resize_if_larger(
+	pub(crate) fn get_resize_actions_if_larger(
 		&mut self,
 		size: i32,
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {

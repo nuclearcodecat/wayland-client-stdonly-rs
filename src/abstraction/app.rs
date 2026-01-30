@@ -5,15 +5,7 @@ use crate::{
 	abstraction::spawner::TopLevelWindowSpawner,
 	init_logger, wait_for_sync,
 	wayland::{
-		ExpectRc, God, RcCell, WaylandObjectKind, WeRcGod, WeakCell,
-		buffer::Buffer,
-		callback::Callback,
-		compositor::Compositor,
-		display::Display,
-		registry::Registry,
-		shm::{PixelFormat, SharedMemory, SharedMemoryPool},
-		surface::Surface,
-		xdg_shell::{xdg_surface::XdgSurface, xdg_toplevel::XdgTopLevel, xdg_wm_base::XdgWmBase},
+		EventAction, ExpectRc, God, RcCell, WaylandObject, WaylandObjectKind, WeRcGod, WeakCell, buffer::Buffer, callback::Callback, compositor::Compositor, display::Display, registry::Registry, shm::{PixelFormat, SharedMemory, SharedMemoryPool}, surface::Surface, xdg_shell::{xdg_surface::XdgSurface, xdg_toplevel::XdgTopLevel, xdg_wm_base::XdgWmBase}
 	},
 	wlog,
 };
@@ -108,7 +100,13 @@ impl App {
 						pf,
 						self.god.clone(),
 					);
-					window.shm_pool.borrow_mut().resize_if_larger(surf.w * surf.h * width)?;
+					let mut shm_pool = window.shm_pool.borrow_mut();
+					let acts = shm_pool.get_resize_actions_if_larger(surf.w * surf.h * width)?;
+					for act in acts {
+						if let EventAction::Request(req) = act {
+							self.god.borrow_mut().wlmm.queue_request(req, shm_pool.kind());
+						}
+					}
 					surf.attach_buffer_obj(buf)?;
 					surf.commit()?;
 					drop(surf);

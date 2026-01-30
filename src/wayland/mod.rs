@@ -185,7 +185,7 @@ impl God {
 						);
 						let new_buf_id =
 							self.wlim.new_id_registered(WaylandObjectKind::Buffer, buf_.clone());
-						let acts = buf.resize(new_buf_id, (w, h))?;
+						let acts = buf.get_resize_actions(new_buf_id, (w, h))?;
 						actions.extend_front(acts);
 					} else {
 						wlog!(

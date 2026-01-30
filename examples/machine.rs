@@ -19,26 +19,26 @@ fn main() -> Result<(), Box<dyn Error>> {
 		.with_title("waytinier demo")
 		.spawn()?;
 	let _ = app.push_presenter(window)?;
-	// let window = TopLevelWindow::spawner(&mut app)
-	// 	.with_app_id("waytinier-demo2")
-	// 	.with_title("waytinier demo2")
-	// 	.spawn()?;
-	// let _ = app.push_presenter(window)?;
-	// let window = TopLevelWindow::spawner(&mut app)
-	// 	.with_app_id("waytinier-demo3")
-	// 	.with_title("waytinier demo3")
-	// 	.spawn()?;
-	// let _ = app.push_presenter(window)?;
-	// let window = TopLevelWindow::spawner(&mut app)
-	// 	.with_app_id("waytinier-demo4")
-	// 	.with_title("waytinier demo4")
-	// 	.spawn()?;
-	// let _ = app.push_presenter(window)?;
-	// let window = TopLevelWindow::spawner(&mut app)
-	// 	.with_app_id("waytinier-demo5")
-	// 	.with_title("waytinier demo5")
-	// 	.spawn()?;
-	// let _ = app.push_presenter(window)?;
+	let window = TopLevelWindow::spawner(&mut app)
+		.with_app_id("waytinier-demo2")
+		.with_title("waytinier demo2")
+		.spawn()?;
+	let _ = app.push_presenter(window)?;
+	let window = TopLevelWindow::spawner(&mut app)
+		.with_app_id("waytinier-demo3")
+		.with_title("waytinier demo3")
+		.spawn()?;
+	let _ = app.push_presenter(window)?;
+	let window = TopLevelWindow::spawner(&mut app)
+		.with_app_id("waytinier-demo4")
+		.with_title("waytinier demo4")
+		.spawn()?;
+	let _ = app.push_presenter(window)?;
+	let window = TopLevelWindow::spawner(&mut app)
+		.with_app_id("waytinier-demo5")
+		.with_title("waytinier demo5")
+		.spawn()?;
+	let _ = app.push_presenter(window)?;
 
 	let (img_w, img_h, machine) = parse_pix("pix.ppm")?;
 	let mut state = AppState {
