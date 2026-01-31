@@ -1,4 +1,4 @@
-use std::{cell::RefCell, error::Error, rc::Rc};
+use std::{cell::RefCell, error::Error, os::fd::RawFd, rc::Rc};
 
 use crate::{
 	NONE, WHITE, make_drop_impl,
@@ -130,6 +130,7 @@ impl WaylandObject for Buffer {
 		&mut self,
 		opcode: super::OpCode,
 		_payload: &[u8],
+		_fds: &[RawFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, error::Error, rc::Rc};
+use std::{cell::RefCell, error::Error, os::fd::RawFd, rc::Rc};
 
 use crate::wayland::{
 	EventAction, ExpectRc, RcCell, WaylandError, WaylandObject, WaylandObjectKind, WeRcGod,
@@ -44,6 +44,7 @@ impl WaylandObject for Callback {
 		&mut self,
 		opcode: super::OpCode,
 		payload: &[u8],
+		_fds: &[RawFd],
 	) -> Result<Vec<EventAction>, Box<dyn std::error::Error>> {
 		let mut pending = vec![];
 		match opcode {

@@ -3,10 +3,10 @@ use std::{
 	env,
 	error::Error,
 	fmt::Display,
-	io::{IoSlice, Read},
+	io::{IoSlice, IoSliceMut},
 	os::{
 		fd::RawFd,
-		unix::net::{SocketAncillary, UnixStream},
+		unix::net::{AncillaryData, SocketAncillary, UnixStream},
 	},
 	path::PathBuf,
 };
@@ -214,29 +214,37 @@ impl MessageManager {
 		Ok(())
 	}
 
-	fn get_socket_data(&mut self, buf: &mut [u8]) -> Result<Option<usize>, Box<dyn Error>> {
-		let len;
-		match self.sock.read(buf) {
+	fn get_socket_data(&mut self, buf: &mut [u8]) -> Result<(usize, Vec<RawFd>), Box<dyn Error>> {
+		let mut iov = [IoSliceMut::new(buf)];
+
+		let mut aux_buf: [u8; 64] = [0; 64];
+		let mut aux = SocketAncillary::new(&mut aux_buf);
+
+		match self.sock.recv_vectored_with_ancillary(&mut iov, &mut aux) {
 			Ok(l) => {
-				len = l;
+				let mut fds = vec![];
+				for msg in aux.messages() {
+					if let Ok(AncillaryData::ScmRights(scmr)) = msg {
+						for fd in scmr {
+							fds.push(fd);
+						}
+					}
+				}
+				Ok((l, fds))
 			}
 			Err(er) => match er.kind() {
-				std::io::ErrorKind::WouldBlock => return Ok(None),
-				_ => {
-					return Err(Box::new(er));
-				}
+				std::io::ErrorKind::WouldBlock => Ok((0, vec![])),
+				_ => Err(Box::new(er)),
 			},
 		}
-		Ok(Some(len))
 	}
 
-	pub fn get_events(&mut self) -> Result<usize, Box<dyn Error>> {
+	pub fn get_events(&mut self) -> Result<(usize, Vec<RawFd>), Box<dyn Error>> {
 		let mut b = [0; 8192];
-		let len = self.get_socket_data(&mut b)?;
-		if len.is_none() {
-			return Ok(0);
+		let (len, fds) = self.get_socket_data(&mut b)?;
+		if len == 0 {
+			return Ok((0, vec![]));
 		}
-		let len = len.unwrap();
 
 		let mut cursor = 0;
 		let mut ctr = 0;
@@ -265,7 +273,7 @@ impl MessageManager {
 
 			cursor += recv_len as usize;
 		}
-		Ok(ctr)
+		Ok((ctr, fds))
 	}
 
 	pub fn queue_request(&mut self, req: WireRequest, kind: WaylandObjectKind) {
@@ -340,8 +348,17 @@ pub trait FromWirePayload: Sized {
 	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>>;
 }
 
+fn is_empty(payload: &[u8]) -> Result<(), Box<dyn Error>> {
+	if payload.is_empty() {
+		Err(WaylandError::EmptyFromWirePayload.boxed())
+	} else {
+		Ok(())
+	}
+}
+
 impl FromWirePayload for String {
 	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+		is_empty(payload)?;
 		let p = payload;
 		let len = u32::from_ne_bytes([p[0], p[1], p[2], p[3]]) as usize;
 		let ix = p[4..4 + len]
@@ -356,6 +373,7 @@ impl FromWirePayload for String {
 
 impl FromWirePayload for u32 {
 	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+		is_empty(payload)?;
 		let p = payload;
 		Ok(u32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
 	}
@@ -363,23 +381,15 @@ impl FromWirePayload for u32 {
 
 impl FromWirePayload for i32 {
 	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+		is_empty(payload)?;
 		let p = payload;
 		Ok(i32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
 	}
 }
 
-// impl FromWirePayload for Vec<u8> {
-// 	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
-// 		let size = u32::from_wire(payload)? as usize;
-// 		let mut vec = vec![0; size];
-// 		vec.extend_from_slice(&payload[4 .. 4 + size]);
-// 		Ok(vec)
-// 	}
-// }
-
 impl FromWirePayload for Vec<u32> {
 	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
-		// let size = u32::from_wire(payload)? as usize;
+		is_empty(payload)?;
 		payload[4..].chunks(4).map(|chunk| u32::from_wire(chunk)).collect()
 	}
 }

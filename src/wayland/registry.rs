@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error};
+use std::{collections::HashMap, error::Error, os::fd::RawFd};
 
 use crate::{
 	NONE, WHITE,
@@ -30,7 +30,15 @@ impl Registry {
 		}
 	}
 
-	fn wl_bind(
+	fn wl_bind(&self, id: Id, object: u32, name: &'static str, version: u32) -> WireRequest {
+		WireRequest {
+			sender_id: self.id,
+			opcode: 0,
+			args: vec![WireArgument::UnInt(object), WireArgument::NewIdSpecific(name, version, id)],
+		}
+	}
+
+	pub(crate) fn bind(
 		&mut self,
 		id: Id,
 		object: WaylandObjectKind,
@@ -50,27 +58,7 @@ impl Registry {
 			WHITE,
 			NONE
 		);
-		self.queue_request(WireRequest {
-			// wl_registry id
-			sender_id: self.id,
-			// first request in the proto
-			opcode: 0,
-			args: vec![
-				WireArgument::UnInt(global_id),
-				// WireArgument::NewId(new_id),
-				WireArgument::NewIdSpecific(object.as_str(), version, id),
-			],
-		})
-	}
-
-	pub(crate) fn bind(
-		&mut self,
-		id: Id,
-		object: WaylandObjectKind,
-		version: u32,
-	) -> Result<(), Box<dyn Error>> {
-		self.wl_bind(id, object, version)?;
-		Ok(())
+		self.queue_request(self.wl_bind(id, global_id, object.as_str(), version))
 	}
 
 	pub fn does_implement(&self, query: &str) -> Option<u32> {
@@ -91,6 +79,7 @@ impl WaylandObject for Registry {
 		&mut self,
 		opcode: OpCode,
 		payload: &[u8],
+		_fds: &[RawFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let p = payload;
 		let mut pending = vec![];

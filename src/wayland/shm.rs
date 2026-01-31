@@ -288,6 +288,7 @@ impl WaylandObject for SharedMemory {
 		&mut self,
 		opcode: super::OpCode,
 		payload: &[u8],
+		_fds: &[RawFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {
@@ -335,6 +336,7 @@ impl WaylandObject for SharedMemoryPool {
 		&mut self,
 		_opcode: super::OpCode,
 		_payload: &[u8],
+		_fds: &[RawFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		todo!()
 	}

@@ -1,5 +1,5 @@
 use crate::{
-	CYAN, DebugLevel, NONE, RED, WHITE, YELLOW, dbug,
+	CYAN, DebugLevel, NONE, RED, WHITE, YELLOW,
 	wayland::{
 		wire::{Id, MessageManager, QueueEntry, WireRequest},
 		xdg_shell::xdg_surface::XdgSurface,
@@ -11,12 +11,14 @@ use std::{
 	collections::{HashMap, VecDeque},
 	error::Error,
 	fmt::{self, Display},
+	os::fd::RawFd,
 	rc::{Rc, Weak},
 };
 pub mod buffer;
 pub mod callback;
 pub mod compositor;
 pub mod display;
+pub mod dmabuf;
 pub mod registry;
 pub mod shm;
 pub mod surface;
@@ -53,6 +55,7 @@ pub(crate) enum EventAction {
 	DebugMessage(DebugLevel, String),
 	Resize(i32, i32, WeakCell<XdgSurface>),
 	CallbackDone(Id, u32),
+	DropObject(Id),
 }
 
 pub(crate) trait WaylandObject {
@@ -63,6 +66,7 @@ pub(crate) trait WaylandObject {
 		&mut self,
 		opcode: OpCode,
 		payload: &[u8],
+		_fds: &[RawFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>>;
 	fn kind_as_str(&self) -> &'static str;
 	fn kind(&self) -> WaylandObjectKind;
@@ -96,9 +100,13 @@ impl God {
 	pub fn handle_events(&mut self) -> Result<(), Box<dyn Error>> {
 		wlog!(DebugLevel::Trivial, "event handler", "called", CYAN, NONE);
 		let mut retries = 0;
-		while self.wlmm.get_events()? == 0 && retries < 9999 {
+		let (len, fds) = loop {
+			let (len, fds) = self.wlmm.get_events()?;
+			if len > 0 || retries > 9999 {
+				break (len, fds);
+			}
 			retries += 1;
-		}
+		};
 		let mut last_id: Id = 0;
 		let mut actions: VecDeque<(EventAction, WaylandObjectKind, Id)> = VecDeque::new();
 		while let Some(entry) = self.wlmm.q.pop_front() {
@@ -120,7 +128,8 @@ impl God {
 							_ => return Err(er.boxed()),
 						},
 					};
-					let resulting_actions = obj.1.borrow_mut().handle(ev.opcode, &ev.payload)?;
+					let resulting_actions =
+						obj.1.borrow_mut().handle(ev.opcode, &ev.payload, &fds)?;
 					let x: Vec<(EventAction, WaylandObjectKind, Id)> =
 						resulting_actions.into_iter().map(|x| (x, obj.0, ev.recv_id)).collect();
 					actions.extend(x);
@@ -215,6 +224,9 @@ impl God {
 						break;
 					}
 				}
+				EventAction::DropObject(id) => {
+					self.wlim.idmap.remove(&id);
+				}
 			};
 		}
 		Ok(())
@@ -234,6 +246,8 @@ pub enum WaylandObjectKind {
 	XdgWmBase,
 	XdgSurface,
 	XdgTopLevel,
+	DmaBuf,
+	DmaFeedback,
 }
 
 impl WaylandObjectKind {
@@ -250,6 +264,8 @@ impl WaylandObjectKind {
 			WaylandObjectKind::XdgWmBase => "xdg_wm_base",
 			WaylandObjectKind::XdgSurface => "xdg_surface",
 			WaylandObjectKind::XdgTopLevel => "xdg_toplevel",
+			WaylandObjectKind::DmaBuf => "zwp_linux_dmabuf_v1",
+			WaylandObjectKind::DmaFeedback => "zwp_linux_dmabuf_feedback_v1",
 		}
 	}
 }
@@ -342,6 +358,7 @@ pub enum WaylandError {
 	ObjectNonExistentInWeak,
 	RequiredValueNone,
 	NoWaylandDisplay,
+	EmptyFromWirePayload,
 }
 
 impl WaylandError {
@@ -381,6 +398,9 @@ impl fmt::Display for WaylandError {
 			}
 			WaylandError::NoWaylandDisplay => {
 				write!(f, "WAYLAND_DISPLAY is not set")
+			}
+			WaylandError::EmptyFromWirePayload => {
+				write!(f, "parsing a wire payload failed because its len was 0")
 			}
 		}
 	}

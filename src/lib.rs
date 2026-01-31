@@ -9,7 +9,7 @@ pub mod abstraction;
 pub mod wayland;
 
 // todo
-// - impl Drop for every object and make sure the struct fields are declared correctly
+// - use OwnedFd because it's stupid to use RawFd
 
 // ===== future me notes
 //

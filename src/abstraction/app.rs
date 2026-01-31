@@ -5,7 +5,16 @@ use crate::{
 	abstraction::spawner::TopLevelWindowSpawner,
 	init_logger, wait_for_sync,
 	wayland::{
-		EventAction, ExpectRc, God, RcCell, WaylandObject, WaylandObjectKind, WeRcGod, WeakCell, buffer::Buffer, callback::Callback, compositor::Compositor, display::Display, registry::Registry, shm::{PixelFormat, SharedMemory, SharedMemoryPool}, surface::Surface, xdg_shell::{xdg_surface::XdgSurface, xdg_toplevel::XdgTopLevel, xdg_wm_base::XdgWmBase}
+		EventAction, ExpectRc, God, RcCell, WaylandObject, WaylandObjectKind, WeRcGod, WeakCell,
+		buffer::Buffer,
+		callback::Callback,
+		compositor::Compositor,
+		display::Display,
+		dmabuf::DmaBuf,
+		registry::Registry,
+		shm::{PixelFormat, SharedMemory, SharedMemoryPool},
+		surface::Surface,
+		xdg_shell::{xdg_surface::XdgSurface, xdg_toplevel::XdgTopLevel, xdg_wm_base::XdgWmBase},
 	},
 	wlog,
 };
@@ -16,6 +25,7 @@ pub struct App {
 	pub(crate) presenters: Vec<(usize, RcCell<Presenter>)>,
 	pub(crate) surfaces: Vec<RcCell<Surface>>,
 	pub(crate) shm: RcCell<SharedMemory>,
+	pub(crate) dmabuf: RcCell<DmaBuf>,
 	pub(crate) compositor: RcCell<Compositor>,
 	pub(crate) registry: RcCell<Registry>,
 	pub(crate) display: RcCell<Display>,
@@ -34,6 +44,8 @@ impl App {
 		wait_for_sync!(display, god);
 		let compositor = Compositor::new_bound(registry.clone(), god.clone())?;
 		let shm = SharedMemory::new_bound_initialized(registry.clone(), god.clone())?;
+		let dmabuf = DmaBuf::new_bound(registry.clone(), god.clone())?;
+		let x = dmabuf.borrow_mut().get_default_feedback()?;
 		wait_for_sync!(display, god);
 
 		Ok(Self {
@@ -43,6 +55,7 @@ impl App {
 			compositor,
 			surfaces: vec![],
 			shm,
+			dmabuf,
 			presenters: vec![],
 			finished: false,
 			pres_id_ctr: 0,

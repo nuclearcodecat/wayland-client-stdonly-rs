@@ -1,4 +1,4 @@
-use std::{cell::RefCell, error::Error, rc::Rc};
+use std::{cell::RefCell, error::Error, os::fd::RawFd, rc::Rc};
 
 use crate::{
 	make_drop_impl,
@@ -109,6 +109,7 @@ impl WaylandObject for XdgTopLevel {
 		&mut self,
 		opcode: OpCode,
 		payload: &[u8],
+		_fds: &[RawFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {

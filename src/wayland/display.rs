@@ -5,7 +5,7 @@ use crate::wayland::{
 	registry::Registry,
 	wire::{FromWirePayload, Id, QueueEntry, WireArgument, WireRequest},
 };
-use std::{cell::RefCell, error::Error, rc::Rc};
+use std::{cell::RefCell, error::Error, os::fd::RawFd, rc::Rc};
 
 pub struct Display {
 	pub id: Id,
@@ -78,6 +78,7 @@ impl WaylandObject for Display {
 		&mut self,
 		opcode: OpCode,
 		payload: &[u8],
+		_fds: &[RawFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let p = payload;
 		let mut pending = vec![];
