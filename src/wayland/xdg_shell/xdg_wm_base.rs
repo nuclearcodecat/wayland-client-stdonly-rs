@@ -1,4 +1,4 @@
-use std::{cell::RefCell, error::Error, os::fd::RawFd, rc::Rc};
+use std::{cell::RefCell, error::Error, os::fd::OwnedFd, rc::Rc};
 
 use crate::{
 	make_drop_impl,
@@ -7,7 +7,7 @@ use crate::{
 		WeRcGod,
 		registry::Registry,
 		surface::Surface,
-		wire::{FromWirePayload, Id, WireArgument, WireRequest},
+		wire::{FromWireSingle, Id, WireArgument, WireRequest},
 		xdg_shell::xdg_surface::XdgSurface,
 	},
 };
@@ -102,13 +102,13 @@ impl WaylandObject for XdgWmBase {
 		&mut self,
 		opcode: OpCode,
 		payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {
 			// ping
 			0 => {
-				let serial = u32::from_wire(payload)?;
+				let serial = u32::from_wire_element(payload)?;
 				pending.push(EventAction::Request(self.wl_pong(serial)));
 			}
 			inv => return Err(WaylandError::InvalidOpCode(inv, self.kind_as_str()).boxed()),

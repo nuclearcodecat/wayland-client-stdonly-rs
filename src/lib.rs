@@ -9,7 +9,7 @@ pub mod abstraction;
 pub mod wayland;
 
 // todo
-// - use OwnedFd because it's stupid to use RawFd
+// - use OwnedFd because it's stupid to use OwnedFd
 
 // ===== future me notes
 //

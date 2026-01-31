@@ -11,7 +11,7 @@ use std::{
 	collections::{HashMap, VecDeque},
 	error::Error,
 	fmt::{self, Display},
-	os::fd::RawFd,
+	os::fd::OwnedFd,
 	rc::{Rc, Weak},
 };
 pub mod buffer;
@@ -48,6 +48,7 @@ impl RecvError {
 	}
 }
 
+#[allow(dead_code)]
 pub(crate) enum EventAction {
 	Request(WireRequest),
 	IdDeletion(Id),
@@ -66,7 +67,7 @@ pub(crate) trait WaylandObject {
 		&mut self,
 		opcode: OpCode,
 		payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>>;
 	fn kind_as_str(&self) -> &'static str;
 	fn kind(&self) -> WaylandObjectKind;
@@ -100,10 +101,10 @@ impl God {
 	pub fn handle_events(&mut self) -> Result<(), Box<dyn Error>> {
 		wlog!(DebugLevel::Trivial, "event handler", "called", CYAN, NONE);
 		let mut retries = 0;
-		let (len, fds) = loop {
+		let fds = loop {
 			let (len, fds) = self.wlmm.get_events()?;
 			if len > 0 || retries > 9999 {
-				break (len, fds);
+				break fds;
 			}
 			retries += 1;
 		};
@@ -359,6 +360,7 @@ pub enum WaylandError {
 	RequiredValueNone,
 	NoWaylandDisplay,
 	EmptyFromWirePayload,
+	FdExpected,
 }
 
 impl WaylandError {
@@ -401,6 +403,9 @@ impl fmt::Display for WaylandError {
 			}
 			WaylandError::EmptyFromWirePayload => {
 				write!(f, "parsing a wire payload failed because its len was 0")
+			}
+			WaylandError::FdExpected => {
+				write!(f, "an fd was expected, buf _fds was empty")
 			}
 		}
 	}

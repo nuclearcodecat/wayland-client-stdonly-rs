@@ -1,4 +1,4 @@
-use std::{cell::RefCell, error::Error, os::fd::RawFd, rc::Rc};
+use std::{cell::RefCell, error::Error, os::fd::OwnedFd, rc::Rc};
 
 use crate::wayland::{
 	EventAction, ExpectRc, God, RcCell, WaylandObject, WaylandObjectKind, WeRcGod,
@@ -67,7 +67,7 @@ impl WaylandObject for Compositor {
 		&mut self,
 		_opcode: super::OpCode,
 		_payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		todo!()
 	}

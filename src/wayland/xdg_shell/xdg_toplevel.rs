@@ -1,11 +1,11 @@
-use std::{cell::RefCell, error::Error, os::fd::RawFd, rc::Rc};
+use std::{cell::RefCell, error::Error, os::fd::OwnedFd, rc::Rc};
 
 use crate::{
 	make_drop_impl,
 	wayland::{
 		DebugLevel, EventAction, God, OpCode, RcCell, WaylandError, WaylandObject,
 		WaylandObjectKind, WeRcGod, WeakCell,
-		wire::{FromWirePayload, Id, WireArgument, WireRequest},
+		wire::{FromWirePayload, FromWireSingle, Id, WireArgument, WireRequest},
 		xdg_shell::xdg_surface::XdgSurface,
 	},
 };
@@ -109,14 +109,14 @@ impl WaylandObject for XdgTopLevel {
 		&mut self,
 		opcode: OpCode,
 		payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {
 			// configure
 			0 => {
-				let w = i32::from_wire(payload)?;
-				let h = i32::from_wire(&payload[4..])?;
+				let w = i32::from_wire_element(payload)?;
+				let h = i32::from_wire_element(&payload[4..])?;
 				let states: Vec<XdgTopLevelStates> = Vec::from_wire(&payload[8..])?
 					.iter()
 					.map(|en| {

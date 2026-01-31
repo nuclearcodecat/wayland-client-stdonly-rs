@@ -3,9 +3,9 @@ use crate::wayland::{
 	WaylandObjectKind, WeRcGod,
 	callback::Callback,
 	registry::Registry,
-	wire::{FromWirePayload, Id, QueueEntry, WireArgument, WireRequest},
+	wire::{FromWirePayload, FromWireSingle, Id, QueueEntry, WireArgument, WireRequest},
 };
-use std::{cell::RefCell, error::Error, os::fd::RawFd, rc::Rc};
+use std::{cell::RefCell, error::Error, os::fd::OwnedFd, rc::Rc};
 
 pub struct Display {
 	pub id: Id,
@@ -78,14 +78,14 @@ impl WaylandObject for Display {
 		&mut self,
 		opcode: OpCode,
 		payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let p = payload;
 		let mut pending = vec![];
 		match opcode {
 			0 => {
-				let obj_id = u32::from_wire(p)?;
-				let code = u32::from_wire(&p[4..])?;
+				let obj_id = u32::from_wire_element(p)?;
+				let code = u32::from_wire_element(&p[4..])?;
 				let message = String::from_wire(&p[8..])?;
 				// maybe add some sort of error manager
 				eprintln!("======== ERROR {} FIRED in wl_display\nfor object\n{:?}", code, message);
@@ -99,7 +99,7 @@ impl WaylandObject for Display {
 				));
 			}
 			1 => {
-				let deleted_id = u32::from_wire(payload)?;
+				let deleted_id = u32::from_wire_element(payload)?;
 				// println!(
 				// 	"==================== ID {:?} GOT DELETED (unimpl)",
 				// 	deleted_id

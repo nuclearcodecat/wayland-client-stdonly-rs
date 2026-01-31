@@ -4,7 +4,7 @@ use crate::{
 		DebugLevel, EventAction, ExpectRc, God, RcCell, WaylandError, WaylandObject,
 		WaylandObjectKind, WeRcGod,
 		registry::Registry,
-		wire::{FromWirePayload, Id, WireArgument, WireRequest},
+		wire::{FromWireSingle, Id, WireArgument, WireRequest},
 	},
 	wlog,
 };
@@ -17,7 +17,7 @@ use std::{
 	collections::HashSet,
 	error::Error,
 	ffi::CString,
-	os::{fd::RawFd, raw::c_void},
+	os::{fd::{AsRawFd, FromRawFd, OwnedFd, RawFd}, raw::c_void},
 	ptr::{self, null_mut},
 	rc::Rc,
 };
@@ -97,20 +97,21 @@ impl SharedMemory {
 		size: i32,
 	) -> Result<RcCell<SharedMemoryPool>, Box<dyn Error>> {
 		let name = self.make_unique_pool_name()?;
-		let fd = unsafe { shm_open(name.as_ptr(), O_RDWR | O_CREAT, 0) };
-		if fd == -1 {
+		let raw_fd = unsafe { shm_open(name.as_ptr(), O_RDWR | O_CREAT, 0) };
+		if raw_fd == -1 {
 			return Err(Box::new(std::io::Error::last_os_error()));
 		}
 		wlog!(
 			DebugLevel::Important,
 			self.kind_as_str(),
-			format!("new pool fd: {}", fd),
+			format!("new pool fd: {}", raw_fd),
 			WHITE,
 			NONE
 		);
-		if unsafe { ftruncate(fd, size.into()) } == -1 {
+		if unsafe { ftruncate(raw_fd, size.into()) } == -1 {
 			return Err(Box::new(std::io::Error::last_os_error()));
 		}
+		let fd = unsafe { OwnedFd::from_raw_fd(raw_fd) };
 
 		let shmpool =
 			Rc::new(RefCell::new(SharedMemoryPool::new(0, self.god.clone(), name, size, fd)));
@@ -125,7 +126,7 @@ impl SharedMemory {
 		let mut shmpool_ = shmpool_.borrow_mut();
 		shmpool_.id = id;
 		shmpool_.update_ptr()?;
-		self.create_pool(size, fd, id)?;
+		self.create_pool(size, raw_fd, id)?;
 		Ok(shmpool)
 	}
 
@@ -152,13 +153,13 @@ pub struct SharedMemoryPool {
 	god: WeRcGod,
 	name: CString,
 	pub size: i32,
-	pub(crate) fd: RawFd,
+	pub(crate) fd: OwnedFd,
 	pub slice: Option<*mut [u8]>,
 	ptr: Option<*mut c_void>,
 }
 
 impl SharedMemoryPool {
-	pub fn new(id: Id, god: WeRcGod, name: CString, size: i32, fd: RawFd) -> Self {
+	pub fn new(id: Id, god: WeRcGod, name: CString, size: i32, fd: OwnedFd) -> Self {
 		Self {
 			id,
 			god,
@@ -236,7 +237,7 @@ impl SharedMemoryPool {
 
 	pub(crate) fn update_ptr(&mut self) -> Result<(), Box<dyn Error>> {
 		let ptr = unsafe {
-			mmap(null_mut(), self.size as usize, PROT_READ | PROT_WRITE, MAP_SHARED, self.fd, 0)
+			mmap(null_mut(), self.size as usize, PROT_READ | PROT_WRITE, MAP_SHARED, self.fd.as_raw_fd(), 0)
 		};
 		if ptr == MAP_FAILED {
 			eprintln!("FAILED IN UPDATE_PTR");
@@ -263,7 +264,7 @@ impl SharedMemoryPool {
 		));
 		self.unmap()?;
 		self.size = size;
-		let r = unsafe { ftruncate(self.fd, size.into()) };
+		let r = unsafe { ftruncate(self.fd.as_raw_fd(), size.into()) };
 		if r == 0 {
 			Ok(())
 		} else {
@@ -288,12 +289,12 @@ impl WaylandObject for SharedMemory {
 		&mut self,
 		opcode: super::OpCode,
 		payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {
 			0 => {
-				let format = u32::from_wire(payload)?;
+				let format = u32::from_wire_element(payload)?;
 				if let Ok(pf) = PixelFormat::from_u32(format) {
 					self.push_pix_format(pf);
 					pending.push(EventAction::DebugMessage(
@@ -336,7 +337,7 @@ impl WaylandObject for SharedMemoryPool {
 		&mut self,
 		_opcode: super::OpCode,
 		_payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		todo!()
 	}

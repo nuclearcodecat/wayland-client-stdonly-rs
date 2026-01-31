@@ -1,4 +1,4 @@
-use std::{error::Error, os::fd::RawFd};
+use std::{error::Error, os::fd::OwnedFd};
 
 use crate::{
 	make_drop_impl,
@@ -6,7 +6,7 @@ use crate::{
 		DebugLevel, EventAction, OpCode, WaylandError, WaylandObject, WaylandObjectKind, WeRcGod,
 		WeakCell,
 		surface::Surface,
-		wire::{FromWirePayload, Id, WireArgument, WireRequest},
+		wire::{FromWireSingle, Id, WireArgument, WireRequest},
 	},
 };
 
@@ -56,7 +56,7 @@ impl WaylandObject for XdgSurface {
 		&mut self,
 		opcode: OpCode,
 		payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {
@@ -67,7 +67,7 @@ impl WaylandObject for XdgSurface {
 					format!("{} | configure received, acking", self.kind_as_str()),
 				));
 				self.is_configured = true;
-				let serial = u32::from_wire(payload)?;
+				let serial = u32::from_wire_element(payload)?;
 				pending.push(EventAction::Request(self.wl_ack_configure(serial)));
 			}
 			inv => return Err(WaylandError::InvalidOpCode(inv, self.kind_as_str()).boxed()),

@@ -1,8 +1,8 @@
-use std::{cell::RefCell, error::Error, os::fd::RawFd, rc::Rc};
+use std::{cell::RefCell, error::Error, os::fd::OwnedFd, rc::Rc};
 
 use crate::wayland::{
 	EventAction, ExpectRc, RcCell, WaylandError, WaylandObject, WaylandObjectKind, WeRcGod,
-	wire::{FromWirePayload, Id},
+	wire::{FromWireSingle, Id},
 };
 
 pub struct Callback {
@@ -44,12 +44,12 @@ impl WaylandObject for Callback {
 		&mut self,
 		opcode: super::OpCode,
 		payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn std::error::Error>> {
 		let mut pending = vec![];
 		match opcode {
 			0 => {
-				let data = u32::from_wire(payload)?;
+				let data = u32::from_wire_element(payload)?;
 				self.done = true;
 				self.data = Some(data);
 				pending.push(EventAction::CallbackDone(self.id, data));

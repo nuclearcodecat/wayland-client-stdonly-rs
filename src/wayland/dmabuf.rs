@@ -1,13 +1,23 @@
-use std::{cell::RefCell, error::Error, os::fd::RawFd, rc::Rc};
+// kernel info (see userspace iface notes section and also has dmabuf-specific ioctl info)
+// https://docs.kernel.org/driver-api/dma-buf.html
+//
+// pixel format stuff
+// https://docs.kernel.org/userspace-api/dma-buf-alloc-exchange.html
+//
+// fourcc codes for the modifiers and formats
+// https://github.com/torvalds/linux/blob/master/include/uapi/drm/drm_fourcc.h
+
+use std::{cell::RefCell, error::Error, os::fd::{AsRawFd, OwnedFd}, ptr::null_mut, rc::Rc};
+
+use libc::{MAP_FAILED, MAP_PRIVATE, PROT_READ};
 
 use crate::{
-	DebugLevel, dbug,
-	wayland::{
+	DebugLevel, NONE, WHITE, abstraction::dma::DRM_FORMAT_ARGB8888, dbug, wayland::{
 		EventAction, ExpectRc, God, OpCode, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
 		WeRcGod, WeakCell,
 		registry::Registry,
-		wire::{FromWirePayload, Id, WireArgument, WireRequest},
-	},
+		wire::{FromBits, FromWirePayload, FromWireSingle, Id, WireArgument, WireRequest},
+	}, wlog
 };
 
 pub(crate) struct DmaBuf {
@@ -30,7 +40,7 @@ impl DmaBuf {
 		let me = Rc::new(RefCell::new(Self::new(god.clone())));
 		let id = god.borrow_mut().wlim.new_id_registered(WaylandObjectKind::DmaBuf, me.clone());
 		me.borrow_mut().id = id;
-		registry.borrow_mut().bind(id, me.borrow().kind(), 4)?;
+		registry.borrow_mut().bind(id, me.borrow().kind(), 5)?;
 		Ok(me)
 	}
 
@@ -58,15 +68,6 @@ impl DmaBuf {
 	}
 }
 
-impl DmaFeedback {
-	pub(crate) fn new() -> Self {
-		Self {
-			id: 0,
-			done: false,
-		}
-	}
-}
-
 impl WaylandObject for DmaBuf {
 	fn id(&self) -> Id {
 		self.id
@@ -80,7 +81,7 @@ impl WaylandObject for DmaBuf {
 		&mut self,
 		opcode: OpCode,
 		payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {
@@ -111,6 +112,38 @@ impl WaylandObject for DmaBuf {
 pub(crate) struct DmaFeedback {
 	pub(crate) id: Id,
 	pub(crate) done: bool,
+	pub(crate) format_table: Vec<(u32, u64)>,
+	pub(crate) format_indices: Vec<u16>,
+	pub(crate) flags: Vec<TrancheFlags>,
+}
+
+impl DmaFeedback {
+	pub(crate) fn new() -> Self {
+		Self {
+			id: 0,
+			done: false,
+			format_table: vec![],
+			format_indices: vec![],
+			flags: vec![],
+		}
+	}
+
+	fn parse_format_table(&mut self, slice: &[u8]) -> Result<(), Box<dyn Error>> {
+		for chunk in slice.chunks(16) {
+			let format = u32::from_wire_element(chunk)?;
+			let _padding = u32::from_wire_element(&chunk[4..])?;
+			let modifier = u64::from_wire_element(&chunk[8..])?;
+			self.format_table.push((format, modifier));
+		};
+		wlog!(DebugLevel::Important, self.kind_as_str(), format!("parsed {} format table: {:?}", self.kind_as_str(), self.format_table), WHITE, NONE);
+		Ok(())
+	}
+}
+
+#[repr(u32)]
+#[derive(Debug)]
+pub(crate) enum TrancheFlags {
+	Scanout = 1 << 0,
 }
 
 impl WaylandObject for DmaFeedback {
@@ -126,7 +159,7 @@ impl WaylandObject for DmaFeedback {
 		&mut self,
 		opcode: OpCode,
 		payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let mut pending = vec![];
 		match opcode {
@@ -136,7 +169,18 @@ impl WaylandObject for DmaFeedback {
 			}
 			// format_table
 			1 => {
-				let size = u32::from_wire(payload)?;
+				dbug!("format_table");
+				let size = u32::from_wire_element(payload)? as usize;
+				let fd = _fds.first().ok_or(WaylandError::FdExpected.boxed())?;
+				let ptr = unsafe {
+					libc::mmap(null_mut(), size, PROT_READ, MAP_PRIVATE, fd.as_raw_fd(), 0)
+				};
+				if ptr == MAP_FAILED {
+					return Err(Box::new(std::io::Error::last_os_error()));
+				}
+				let slice: &[u8] = unsafe { std::slice::from_raw_parts(ptr as *mut u8, size) };
+				self.parse_format_table(slice)?;
+
 				pending.push(EventAction::DebugMessage(
 					DebugLevel::Important,
 					format!("size: {size}, fd: {:?}", _fds),
@@ -144,7 +188,8 @@ impl WaylandObject for DmaFeedback {
 			}
 			// main_device
 			2 => {
-				let main_device = Vec::from_wire(payload)?;
+				dbug!("main_device");
+				let main_device: Vec<u32> = Vec::from_wire(payload)?;
 				pending.push(EventAction::DebugMessage(
 					DebugLevel::Important,
 					format!("main_device: {:?}", main_device),
@@ -152,6 +197,7 @@ impl WaylandObject for DmaFeedback {
 			}
 			// tranche_done
 			3 => {
+				dbug!("tranche_done");
 				pending.push(EventAction::DebugMessage(
 					DebugLevel::Important,
 					String::from("tranche done"),
@@ -159,7 +205,8 @@ impl WaylandObject for DmaFeedback {
 			}
 			// tranche_target_device
 			4 => {
-				let target_device = Vec::from_wire(payload)?;
+				dbug!("tranche_target_device");
+				let target_device: Vec<u32> = Vec::from_wire(payload)?;
 				pending.push(EventAction::DebugMessage(
 					DebugLevel::Important,
 					format!("tranche target device: {:?}", target_device),
@@ -167,18 +214,35 @@ impl WaylandObject for DmaFeedback {
 			}
 			// tranche_formats
 			5 => {
-				let formats = Vec::from_wire(payload)?;
+				dbug!("tranche_formats");
+				let indices: Vec<u16> = Vec::from_wire(payload)?;
+				self.format_indices = indices;
 				pending.push(EventAction::DebugMessage(
 					DebugLevel::Important,
-					format!("tranche formats: {:?}", formats),
+					format!("tranche indices: {:?}", self.format_indices),
 				));
+				for ix in &self.format_indices {
+					let entry = self.format_table[*ix as usize];
+					if entry.0 == DRM_FORMAT_ARGB8888 {
+						dbug!(format!("found argb8888: {:?}", entry));
+					}
+					pending.push(EventAction::DebugMessage(
+						DebugLevel::Important,
+						format!("tranche format {ix}: {:?}", entry)
+					));
+				}
 			}
 			// tranche_flags
 			6 => {
-				let flags = Vec::from_wire(payload)?;
+				dbug!("tranche_flags");
+				let flags = u32::from_wire_element(payload)?;
+				let mut v = vec![];
+				if flags & TrancheFlags::Scanout as u32 != 0 {
+					v.push(TrancheFlags::Scanout);
+				};
 				pending.push(EventAction::DebugMessage(
 					DebugLevel::Important,
-					format!("tranche flags: {:?}", flags),
+					format!("tranche flags: {:?}", v),
 				));
 			}
 			inv => {

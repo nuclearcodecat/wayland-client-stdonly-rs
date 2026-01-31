@@ -1,10 +1,10 @@
-use std::{collections::HashMap, error::Error, os::fd::RawFd};
+use std::{collections::HashMap, error::Error, os::fd::OwnedFd};
 
 use crate::{
 	NONE, WHITE,
 	wayland::{
 		DebugLevel, EventAction, OpCode, WaylandError, WaylandObject, WaylandObjectKind, WeRcGod,
-		wire::{FromWirePayload, Id, WireArgument, WireRequest},
+		wire::{FromWirePayload, FromWireSingle, Id, WireArgument, WireRequest},
 	},
 	wlog,
 };
@@ -79,15 +79,15 @@ impl WaylandObject for Registry {
 		&mut self,
 		opcode: OpCode,
 		payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		let p = payload;
 		let mut pending = vec![];
 		match opcode {
 			0 => {
-				let name = u32::from_wire(p)?;
+				let name = u32::from_wire_element(p)?;
 				let interface = String::from_wire(&p[4..])?;
-				let version = u32::from_wire(&p[p.len() - 4..])?;
+				let version = u32::from_wire_element(&p[p.len() - 4..])?;
 				let msg = format!("inserted interface {} version {}", interface, version);
 				self.inner.insert(
 					name,

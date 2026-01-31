@@ -5,16 +5,14 @@ use std::{
 	fmt::Display,
 	io::{IoSlice, IoSliceMut},
 	os::{
-		fd::RawFd,
+		fd::{FromRawFd, OwnedFd, RawFd},
 		unix::net::{AncillaryData, SocketAncillary, UnixStream},
 	},
 	path::PathBuf,
 };
 
 use crate::{
-	CYAN, GREEN, NONE, RED, YELLOW,
-	wayland::{DebugLevel, IdentManager, OpCode, WaylandError, WaylandObjectKind},
-	wlog,
+	CYAN, GREEN, NONE, RED, YELLOW, wayland::{DebugLevel, IdentManager, OpCode, WaylandError, WaylandObjectKind}, wlog
 };
 
 pub type Id = u32;
@@ -196,7 +194,7 @@ impl MessageManager {
 					buf.resize(x.len() - (x.len() % 4) - 4, 0);
 				}
 				WireArgument::FileDescriptor(x) => {
-					fds.push(*x as RawFd);
+					fds.push(*x);
 				}
 				_ => buf.append(&mut obj.as_vec_u8()),
 			}
@@ -214,7 +212,7 @@ impl MessageManager {
 		Ok(())
 	}
 
-	fn get_socket_data(&mut self, buf: &mut [u8]) -> Result<(usize, Vec<RawFd>), Box<dyn Error>> {
+	fn get_socket_data(&self, buf: &mut [u8]) -> Result<(usize, Vec<OwnedFd>), Box<dyn Error>> {
 		let mut iov = [IoSliceMut::new(buf)];
 
 		let mut aux_buf: [u8; 64] = [0; 64];
@@ -226,6 +224,7 @@ impl MessageManager {
 				for msg in aux.messages() {
 					if let Ok(AncillaryData::ScmRights(scmr)) = msg {
 						for fd in scmr {
+							let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 							fds.push(fd);
 						}
 					}
@@ -239,7 +238,7 @@ impl MessageManager {
 		}
 	}
 
-	pub fn get_events(&mut self) -> Result<(usize, Vec<RawFd>), Box<dyn Error>> {
+	pub fn get_events(&mut self) -> Result<(usize, Vec<OwnedFd>), Box<dyn Error>> {
 		let mut b = [0; 8192];
 		let (len, fds) = self.get_socket_data(&mut b)?;
 		if len == 0 {
@@ -344,11 +343,53 @@ impl WireArgument {
 	}
 }
 
-pub trait FromWirePayload: Sized {
+pub(crate) trait FromWireSingle: Sized {
+	const ONE_ELEMENT_SIZE: usize;
+
+	fn from_wire_element(bytes: &[u8]) -> Result<Self, Box<dyn Error>>;
+}
+
+impl FromWireSingle for u32 {
+	const ONE_ELEMENT_SIZE: usize = 4;
+
+	fn from_wire_element(bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
+		is_payload_empty(bytes)?;
+		Ok(u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+	}
+}
+
+impl FromWireSingle for i32 {
+	const ONE_ELEMENT_SIZE: usize = 4;
+
+	fn from_wire_element(bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
+		is_payload_empty(bytes)?;
+		Ok(i32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+	}
+}
+
+impl FromWireSingle for u16 {
+	const ONE_ELEMENT_SIZE: usize = 2;
+
+	fn from_wire_element(bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
+		is_payload_empty(bytes)?;
+		Ok(u16::from_ne_bytes([bytes[0], bytes[1]]))
+	}
+}
+
+impl FromWireSingle for u64 {
+	const ONE_ELEMENT_SIZE: usize = 4;
+
+	fn from_wire_element(bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
+		is_payload_empty(bytes)?;
+		Ok(u64::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]]))
+	}
+}
+
+pub(crate) trait FromWirePayload: Sized {
 	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>>;
 }
 
-fn is_empty(payload: &[u8]) -> Result<(), Box<dyn Error>> {
+pub(crate) fn is_payload_empty(payload: &[u8]) -> Result<(), Box<dyn Error>> {
 	if payload.is_empty() {
 		Err(WaylandError::EmptyFromWirePayload.boxed())
 	} else {
@@ -356,9 +397,16 @@ fn is_empty(payload: &[u8]) -> Result<(), Box<dyn Error>> {
 	}
 }
 
+impl<T> FromWirePayload for Vec<T>
+where T: FromWireSingle {
+	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+		payload[4..].chunks(T::ONE_ELEMENT_SIZE).map(T::from_wire_element).collect()
+	}
+}
+
 impl FromWirePayload for String {
 	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
-		is_empty(payload)?;
+		is_payload_empty(payload)?;
 		let p = payload;
 		let len = u32::from_ne_bytes([p[0], p[1], p[2], p[3]]) as usize;
 		let ix = p[4..4 + len]
@@ -371,25 +419,6 @@ impl FromWirePayload for String {
 	}
 }
 
-impl FromWirePayload for u32 {
-	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
-		is_empty(payload)?;
-		let p = payload;
-		Ok(u32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
-	}
-}
-
-impl FromWirePayload for i32 {
-	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
-		is_empty(payload)?;
-		let p = payload;
-		Ok(i32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
-	}
-}
-
-impl FromWirePayload for Vec<u32> {
-	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
-		is_empty(payload)?;
-		payload[4..].chunks(4).map(|chunk| u32::from_wire(chunk)).collect()
-	}
+pub(crate) trait FromBits: Sized {
+	fn to_enum_vec(bits: u32) -> Vec<Self>;
 }

@@ -1,4 +1,4 @@
-use std::{error::Error, os::fd::RawFd};
+use std::{error::Error, os::fd::OwnedFd};
 
 use crate::{
 	make_drop_impl,
@@ -129,7 +129,7 @@ impl WaylandObject for Surface {
 		&mut self,
 		_opcode: super::OpCode,
 		_payload: &[u8],
-		_fds: &[RawFd],
+		_fds: &[OwnedFd],
 	) -> Result<Vec<EventAction>, Box<dyn Error>> {
 		todo!()
 	}
