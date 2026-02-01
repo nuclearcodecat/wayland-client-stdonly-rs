@@ -34,6 +34,7 @@ pub struct App {
 }
 
 impl App {
+	// todo appspawner with pixel format spec
 	pub fn new() -> Result<Self, Box<dyn Error>> {
 		init_logger();
 
@@ -44,7 +45,7 @@ impl App {
 		wait_for_sync!(display, god);
 		let compositor = Compositor::new_bound(registry.clone(), god.clone())?;
 		let shm = SharedMemory::new_bound_initialized(registry.clone(), god.clone())?;
-		let dmabuf = DmaBuf::new_bound(registry.clone(), god.clone())?;
+		let dmabuf = DmaBuf::new_bound(registry.clone(), god.clone(), PixelFormat::Argb888)?;
 		let _x = dmabuf.borrow_mut().get_default_feedback()?;
 		wait_for_sync!(display, god);
 

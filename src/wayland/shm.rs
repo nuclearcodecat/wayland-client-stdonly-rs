@@ -1,5 +1,7 @@
 use crate::{
-	CYAN, NONE, WHITE, dbug,
+	CYAN, NONE, WHITE,
+	abstraction::dma::fourcc_code,
+	dbug,
 	wayland::{
 		DebugLevel, EventAction, ExpectRc, God, RcCell, WaylandError, WaylandObject,
 		WaylandObjectKind, WeRcGod,
@@ -45,6 +47,13 @@ impl PixelFormat {
 		match self {
 			Self::Argb888 => 4,
 			Self::Xrgb888 => 4,
+		}
+	}
+
+	pub const fn to_fourcc(&self) -> u32 {
+		match self {
+			PixelFormat::Argb888 => fourcc_code(b'X', b'R', b'2', b'4'),
+			PixelFormat::Xrgb888 => fourcc_code(b'X', b'R', b'2', b'4'),
 		}
 	}
 }

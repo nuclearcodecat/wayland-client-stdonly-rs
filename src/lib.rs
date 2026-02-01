@@ -93,7 +93,7 @@ macro_rules! wlog {
 #[macro_export]
 macro_rules! dbug {
 	($msg:expr) => {
-		$crate::wlog!($crate::DebugLevel::Verbose, "DEBUG", $msg, $crate::CYAN, $crate::CYAN);
+		$crate::wlog!($crate::DebugLevel::Important, "DEBUG", $msg, $crate::CYAN, $crate::CYAN);
 	};
 }
 

@@ -424,7 +424,3 @@ impl FromWirePayload for String {
 		Ok(String::from_utf8(p[4..4 + ix].to_vec())?)
 	}
 }
-
-pub(crate) trait FromBits: Sized {
-	fn to_enum_vec(bits: u32) -> Vec<Self>;
-}
