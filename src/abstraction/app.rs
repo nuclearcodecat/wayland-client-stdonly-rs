@@ -2,16 +2,16 @@ use std::{cell::RefCell, error::Error, rc::Rc};
 
 use crate::{
 	CYAN, DebugLevel, RED,
-	abstraction::spawner::TopLevelWindowSpawner,
+	abstraction::wizard::TopLevelWindowWizard,
 	init_logger, wait_for_sync,
 	wayland::{
 		EventAction, ExpectRc, God, RcCell, WaylandObject, WaylandObjectKind, WeRcGod, WeakCell,
-		buffer::{Buffer, BufferBackend},
+		buffer::BufferBackend,
 		callback::Callback,
 		compositor::Compositor,
 		display::Display,
 		registry::Registry,
-		shm::{PixelFormat, SharedMemory, SharedMemoryPool},
+		shm::{PixelFormat, SharedMemory},
 		surface::Surface,
 		xdg_shell::{xdg_surface::XdgSurface, xdg_toplevel::XdgTopLevel, xdg_wm_base::XdgWmBase},
 	},
@@ -34,7 +34,7 @@ pub struct App {
 }
 
 impl App {
-	// todo appspawner with pixel format spec
+	// todo appwizard with pixel format spec
 	pub fn new() -> Result<Self, Box<dyn Error>> {
 		init_logger();
 
@@ -198,8 +198,8 @@ pub struct TopLevelWindow {
 }
 
 impl TopLevelWindow {
-	pub fn spawner<'a>(parent: &'a mut App) -> TopLevelWindowSpawner<'a> {
-		TopLevelWindowSpawner::new(parent)
+	pub fn spawner<'a>(parent: &'a mut App) -> TopLevelWindowWizard<'a> {
+		TopLevelWindowWizard::new(parent)
 	}
 }
 

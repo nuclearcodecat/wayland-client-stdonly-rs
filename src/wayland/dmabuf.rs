@@ -43,6 +43,9 @@
 // 15° wikipedia page on drm. looks like it has lots of useful stuff. read tmr
 // https://en.wikipedia.org/wiki/Direct_Rendering_Manager
 //
+// 16° info about dma buf heaps
+// https://www.kernel.org/doc/html/v6.19-rc8/userspace-api/dma-buf-heaps.html
+//
 //
 // === log / todo ===
 // - i should probably use a render node? from 4° i couldn't figure out what the deal is with
@@ -78,13 +81,18 @@
 //   embedded gpus support
 // - i just looked up what offscreen rendering is.... i should've read 4° more closely..... i should
 //   just try making the buffer with opengl kinda like in 8°
+// - yup. dumb buffers just aren't for render nodes i guess. sending the ioctl to card1 correctly
+//   return einval
+// - just found some android docs mentioning dma heaps and some presentations about that after i dug
+//   deeper. 16°
+// - check `fd dma-heap /usr`
 //
 
 use std::{
 	cell::RefCell,
 	error::Error,
 	ffi::CString,
-	os::fd::{AsRawFd, OwnedFd},
+	os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
 	ptr::null_mut,
 	rc::Rc,
 	str::FromStr,
@@ -94,11 +102,12 @@ use libc::{MAP_FAILED, MAP_PRIVATE, O_RDWR, PROT_READ};
 
 use crate::{
 	DebugLevel, NONE, WHITE, dbug,
-	linux::dma::{DRM_FORMAT_MOD_LINEAR, make_dumb_buffer},
+	linux::dma::{DRM_FORMAT_MOD_LINEAR, make_dma_heap, make_dumb_buffer},
 	wayland::{
 		EventAction, ExpectRc, God, OpCode, RcCell, WaylandError, WaylandObject, WaylandObjectKind,
 		WeRcGod, WeakCell,
 		registry::Registry,
+		shm::PixelFormat,
 		surface::Surface,
 		wire::{FromWirePayload, FromWireSingle, Id, WireArgument, WireRequest},
 	},
@@ -109,6 +118,7 @@ pub(crate) struct DmaBuf {
 	pub(crate) id: Id,
 	pub(crate) god: WeakCell<God>,
 	pub(crate) surface: WeakCell<Surface>,
+	pub(crate) feedback: Option<RcCell<DmaFeedback>>,
 }
 
 impl DmaBuf {
@@ -117,6 +127,7 @@ impl DmaBuf {
 			id: 0,
 			god: Rc::downgrade(&god),
 			surface: Rc::downgrade(surface),
+			feedback: None,
 		}
 	}
 
@@ -156,6 +167,7 @@ impl DmaBuf {
 		fb.borrow_mut().id = id;
 		dbug!(format!("{}", id));
 		self.queue_request(self.wl_get_default_feedback(id))?;
+		this.borrow_mut().feedback = Some(fb.clone());
 		Ok(fb)
 	}
 }
@@ -209,6 +221,8 @@ pub(crate) struct DmaFeedback {
 	pub(crate) flags: Vec<TrancheFlags>,
 	pub(crate) target_device: Option<u32>,
 	pub(crate) dmabuf: WeakCell<DmaBuf>,
+	// pub(crate) fd: Option<OwnedFd>,
+	pub(crate) fd: Option<RawFd>,
 }
 
 impl DmaFeedback {
@@ -221,6 +235,7 @@ impl DmaFeedback {
 			flags: vec![],
 			target_device: None,
 			dmabuf,
+			fd: None,
 		}
 	}
 
@@ -315,52 +330,56 @@ impl WaylandObject for DmaFeedback {
 				));
 				// todo for now assume i won't be installing a second gpu
 				// i should check the dir on my laptop actually
-				let name_str = CString::from_str("/dev/dri/renderD128")?;
-				let renderd128_stat = unsafe {
-					let mut stat_struct: libc::stat = std::mem::zeroed();
-					let ret = libc::stat(name_str.as_ptr(), &mut stat_struct);
-					// todo asuit this shit
-					if ret != 0 {
-						dbug!("EPIC FAIL");
-					} else {
-						dbug!("we good");
-					}
-					stat_struct
-				};
-				pending.push(EventAction::DebugMessage(
-					DebugLevel::Important,
-					format!("renderd128 stat: {:#?}", renderd128_stat),
-				));
-				pending.push(EventAction::DebugMessage(
-					DebugLevel::Important,
-					format!(
-						"renderd128 stat dev: {}, td[0]: {}",
-						renderd128_stat.st_rdev, target_device[0]
-					),
-				));
+				// let name_str = CString::from_str("/dev/dri/renderD128")?;
+				let name_str = CString::from_str("/dev/dma_heap/system")?;
+				// let renderd128_stat = unsafe {
+				// 	let mut stat_struct: libc::stat = std::mem::zeroed();
+				// 	let ret = libc::stat(name_str.as_ptr(), &mut stat_struct);
+				// 	// todo asuit this shit
+				// 	if ret != 0 {
+				// 		dbug!("EPIC FAIL");
+				// 	} else {
+				// 		dbug!("we good");
+				// 	}
+				// 	stat_struct
+				// };
+				// pending.push(EventAction::DebugMessage(
+				// 	DebugLevel::Important,
+				// 	format!("dmaheap stat: {:#?}", renderd128_stat),
+				// ));
+				// pending.push(EventAction::DebugMessage(
+				// 	DebugLevel::Important,
+				// 	format!(
+				// 		"dmaheap stat dev: {}, td[0]: {}",
+				// 		renderd128_stat.st_rdev, target_device[0]
+				// 	),
+				// ));
 				// dev_t      st_rdev;     /* Device ID (if special file) */
-				if renderd128_stat.st_rdev == target_device[0].into() {
-					self.target_device = Some(target_device[0]);
-					pending.push(EventAction::DebugMessage(
-						DebugLevel::Important,
-						String::from(
-							"tranche target device matches the renderd128 stat dev number",
-						),
-					))
-				}
+				// if renderd128_stat.st_rdev == target_device[0].into() {
+				// 	self.target_device = Some(target_device[0]);
+				// 	pending.push(EventAction::DebugMessage(
+				// 		DebugLevel::Important,
+				// 		String::from(
+				// 			"tranche target device matches the renderd128 stat dev number",
+				// 		),
+				// 	))
+				// }
 
 				let fd = unsafe { libc::open(name_str.as_ptr(), O_RDWR) };
 				if fd == -1 {
 					pending.push(EventAction::DebugMessage(
-						DebugLevel::Important,
-						String::from("failed opening render node"),
+						DebugLevel::Error,
+						String::from("failed opening dmabuf-heap system file"),
 					));
 				} else {
-					let surf = self.dmabuf.upgrade().to_wl_err()?;
-					let dmabuf = surf.borrow();
-					let surf = dmabuf.surface.upgrade().to_wl_err()?;
-					let surf = surf.borrow();
-					make_dumb_buffer(fd, surf.w as u32, surf.h as u32, surf.pf.bpp())?;
+					// self.fd = Some(unsafe { OwnedFd::from_raw_fd(fd) });
+					self.fd = Some(fd);
+					// let surf = self.dmabuf.upgrade().to_wl_err()?;
+					// let dmabuf = surf.borrow();
+					// let surf = dmabuf.surface.upgrade().to_wl_err()?;
+					// let surf = surf.borrow();
+					// make_dumb_buffer(fd, surf.w as u32, surf.h as u32, surf.pf.bpp())?;
+					// make_dma_heap(fd, surf.w as u32, surf.h as u32, surf.pf.bpp())?;
 				}
 			}
 			// tranche_formats
@@ -432,4 +451,110 @@ impl WaylandObject for DmaFeedback {
 	fn kind(&self) -> WaylandObjectKind {
 		WaylandObjectKind::DmaFeedback
 	}
+}
+
+pub(crate) struct DmaBufferParams {
+	pub(crate) id: Id,
+	pub(crate) dmabuf: WeakCell<DmaBuf>,
+	pub(crate) god: WeRcGod,
+}
+
+impl DmaBufferParams {
+	pub(crate) fn new_from_dmabuf(dmabuf: &RcCell<DmaBuf>) -> Result<RcCell<Self>, Box<dyn Error>> {
+		let dma_params = Rc::new(RefCell::new(Self {
+			id: 0,
+			dmabuf: Rc::downgrade(dmabuf),
+			god: dmabuf.borrow().god.clone(),
+		}));
+		let id = dmabuf
+			.borrow()
+			.god
+			.upgrade()
+			.to_wl_err()?
+			.borrow_mut()
+			.wlim
+			.new_id_registered(WaylandObjectKind::DmaBufferParams, dma_params.clone());
+		dma_params.borrow_mut().id = id;
+		Ok(dma_params)
+	}
+
+	fn wl_destroy(&self) -> WireRequest {
+		WireRequest {
+			sender_id: self.id,
+			opcode: 0,
+			args: vec![],
+		}
+	}
+
+	fn wl_add(
+		&self,
+		fd: RawFd,
+		plane_idx: u32,
+		offset: u32,
+		stride: u32,
+		(mod_hi, mod_lo): (u32, u32),
+	) -> WireRequest {
+		WireRequest {
+			sender_id: self.id,
+			opcode: 1,
+			args: vec![
+				WireArgument::FileDescriptor(fd),
+				WireArgument::UnInt(plane_idx),
+				WireArgument::UnInt(offset),
+				WireArgument::UnInt(stride),
+				WireArgument::UnInt(mod_hi),
+				WireArgument::UnInt(mod_lo),
+			],
+		}
+	}
+
+	fn wl_create(
+		&self,
+		(width, height): (i32, i32),
+		format: PixelFormat,
+		flags: Vec<DmaBufferParamsFlags>,
+	) -> WireRequest {
+		WireRequest {
+			sender_id: self.id,
+			opcode: 1,
+			args: vec![
+				// TODO
+			],
+		}
+	}
+}
+
+impl WaylandObject for DmaBufferParams {
+	fn id(&self) -> Id {
+		self.id
+	}
+
+	fn god(&self) -> WeRcGod {
+		self.god.clone()
+	}
+
+	fn handle(
+		&mut self,
+		opcode: OpCode,
+		payload: &[u8],
+		_fds: &[OwnedFd],
+	) -> Result<Vec<EventAction>, Box<dyn Error>> {
+		match opcode {
+			_ => todo!(),
+		}
+	}
+
+	fn kind_as_str(&self) -> &'static str {
+		todo!()
+	}
+
+	fn kind(&self) -> WaylandObjectKind {
+		todo!()
+	}
+}
+
+pub(crate) enum DmaBufferParamsFlags {
+	InvertY,
+	Interlaced,
+	BottomFirst,
 }

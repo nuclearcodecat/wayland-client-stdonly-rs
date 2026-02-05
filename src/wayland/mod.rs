@@ -260,6 +260,7 @@ pub enum WaylandObjectKind {
 	XdgTopLevel,
 	DmaBuf,
 	DmaFeedback,
+	DmaBufferParams,
 }
 
 impl WaylandObjectKind {
@@ -278,6 +279,7 @@ impl WaylandObjectKind {
 			WaylandObjectKind::XdgTopLevel => "xdg_toplevel",
 			WaylandObjectKind::DmaBuf => "zwp_linux_dmabuf_v1",
 			WaylandObjectKind::DmaFeedback => "zwp_linux_dmabuf_feedback_v1",
+			WaylandObjectKind::DmaBufferParams => "zwp_linux_buffer_params_v1",
 		}
 	}
 }

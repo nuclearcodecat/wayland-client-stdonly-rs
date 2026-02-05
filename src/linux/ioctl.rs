@@ -84,6 +84,8 @@
 // #define _IOWR
 //
 
+use crate::linux::dma::{DmaHeapAllocationData, ModeCreateDumb};
+
 const IOC_WRITE: u32 = 1;
 const IOC_READ: u32 = 2;
 
@@ -106,42 +108,8 @@ const fn iowr<T>(type_: u32, nr: u32) -> u32 {
 }
 
 const fn drm_iowr<T>(nr: u32) -> u32 {
-	iowr::<T>(b'd' as u32, nr)
-}
-
-// /**
-//  * struct drm_mode_create_dumb - Create a KMS dumb buffer for scanout.
-//  * @height: buffer height in pixels
-//  * @width: buffer width in pixels
-//  * @bpp: bits per pixel
-//  * @flags: must be zero
-//  * @handle: buffer object handle
-//  * @pitch: number of bytes between two consecutive lines
-//  * @size: size of the whole buffer in bytes
-//  *
-//  * User-space fills @height, @width, @bpp and @flags. If the IOCTL succeeds,
-//  * the kernel fills @handle, @pitch and @size.
-//  */
-// struct drm_mode_create_dumb {
-// 	__u32 height;
-// 	__u32 width;
-// 	__u32 bpp;
-// 	__u32 flags;
-
-// 	__u32 handle;
-// 	__u32 pitch;
-// 	__u64 size;
-// };
-#[repr(C)]
-#[derive(Default)]
-pub(crate) struct ModeCreateDumb {
-	pub(crate) height: u32,
-	pub(crate) width: u32,
-	pub(crate) bpp: u32,
-	pub(crate) flags: u32,
-	pub(crate) handle: u32,
-	pub(crate) pitch: u32,
-	pub(crate) size: u64,
+	iowr::<T>('d' as u32, nr)
 }
 
 pub(crate) const DRM_IOCTL_MODE_CREATE_DUMB: u32 = drm_iowr::<ModeCreateDumb>(0xb2);
+pub(crate) const DMA_HEAP_IOCTL_ALLOC: u32 = iowr::<DmaHeapAllocationData>('H' as u32, 0x0);

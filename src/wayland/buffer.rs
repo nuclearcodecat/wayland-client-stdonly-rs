@@ -1,7 +1,9 @@
 use std::{cell::RefCell, error::Error, os::fd::OwnedFd, rc::Rc};
 
 use crate::{
-	NONE, WHITE, make_drop_impl,
+	NONE, WHITE,
+	linux::dma::make_dma_heap,
+	make_drop_impl,
 	wayland::{
 		DebugLevel, EventAction, ExpectRc, God, OpCode, RcCell, WaylandError, WaylandObject,
 		WaylandObjectKind, WeRcGod, WeakCell,
@@ -193,7 +195,15 @@ impl Buffer {
 					self.id,
 				));
 			}
-			BufferBackend::Dma(weak) => todo!(),
+			BufferBackend::Dma(weak) => {
+				let dmabuf = weak.upgrade().to_wl_err()?;
+				let dmabuf = dmabuf.borrow();
+				let dmafb = dmabuf.feedback.clone().unwrap();
+				let dmafb = dmafb.borrow();
+				let fd = dmafb.fd.unwrap();
+				let format_width = dmabuf.surface.upgrade().to_wl_err()?.borrow().pf.width();
+				let dmahad = make_dma_heap(fd, w as u32, h as u32, format_width as u32)?;
+			}
 		};
 
 		Ok(pending)

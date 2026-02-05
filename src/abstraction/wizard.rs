@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[allow(dead_code)]
-pub struct TopLevelWindowSpawner<'a> {
+pub struct TopLevelWindowWizard<'a> {
 	pub(crate) app_id: Option<String>,
 	pub(crate) title: Option<String>,
 	pub(crate) width: Option<i32>,
@@ -25,7 +25,7 @@ pub struct TopLevelWindowSpawner<'a> {
 	pub(crate) buf_backend: Option<BufferBackendKind>,
 }
 
-impl<'a> TopLevelWindowSpawner<'a> {
+impl<'a> TopLevelWindowWizard<'a> {
 	pub fn with_app_id(mut self, app_id: &str) -> Self {
 		self.app_id = Some(String::from(app_id));
 		self
