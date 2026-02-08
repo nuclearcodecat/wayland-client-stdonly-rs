@@ -1,4 +1,6 @@
 #![feature(unix_socket_ancillary_data)]
+#![feature(variant_count)]
+#![feature(deque_extend_front)]
 
 use std::{
 	cell::RefCell,
@@ -7,16 +9,7 @@ use std::{
 };
 
 pub mod abstraction;
-pub(crate) mod wayland;
-
-// restructuring
-// - object should not have refs to god.
-// - remove dependency on god object - wltos funcalls should return
-//   queueentries, no more queue_request
-// - fuck Drop, i'll just hope the compositor cleans up after me
-// - replace make_buffer() match with a BufferMaker trait
-// - just rewrite this entire thing bruh
-// - TODO FULL REWRITE
+pub mod wayland;
 
 pub const NONE: &str = "\x1b[0m";
 pub const RED: &str = "\x1b[31m";
@@ -75,6 +68,13 @@ macro_rules! wlog {
 macro_rules! dbug {
 	($msg:expr) => {
 		$crate::wlog!($crate::DebugLevel::Important, "DEBUG", $msg, $crate::CYAN, $crate::CYAN);
+	};
+}
+
+#[macro_export]
+macro_rules! handle_log {
+	($self:expr, $lvl:expr, $msg:expr) => {
+		$crate::wlog!($lvl, $self.kind_str(), $msg, $crate::WHITE, $crate::NONE);
 	};
 }
 

@@ -3,10 +3,8 @@ use std::{error::Error, os::fd::OwnedFd};
 use crate::{
 	Rl, rl,
 	wayland::{
-		AppRequest, Id, IdentManager, OpCode, PixelFormat, Raw, Request, WaylandObject,
-		WaylandObjectKind,
+		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
 		registry::Registry,
-		surface::Surface,
 		wire::{WireArgument, WireRequest},
 	},
 };
@@ -16,58 +14,51 @@ pub(crate) struct Compositor {
 }
 
 impl Compositor {
-	pub(crate) fn new(id: Id) -> Self {
-		Self {
+	pub(crate) fn new(id: Id) -> Rl<Self> {
+		rl!(Self {
 			id,
-		}
+		})
 	}
 
-	pub fn new_bound(
-		wlim: &mut IdentManager,
-		registry: Rl<Registry>,
-	) -> Result<Rl<Self>, Box<dyn Error>> {
-		let compositor = rl!(Self::new(Id(0)));
-		let id = wlim.new_id_registered(compositor.clone());
+	pub(crate) fn new_registered(god: &mut God) -> Rl<Self> {
+		let compositor = Self::new(Id(0));
+		let id = god.wlim.new_id_registered(compositor.clone());
 		compositor.borrow_mut().id = id;
-		registry.borrow_mut().bind(id, WaylandObjectKind::Compositor, 5)?;
+		compositor
+	}
+
+	pub(crate) fn new_registered_bound(
+		god: &mut God,
+		registry: &Rl<Registry>,
+	) -> Result<Rl<Self>, WaylandError> {
+		let compositor = Self::new_registered(god);
+		registry.borrow_mut().bind(god, compositor.borrow().id, compositor.borrow().kind(), 5)?;
 		Ok(compositor)
 	}
 
 	fn wl_create_surface(&self, id: Id) -> WireRequest {
 		WireRequest {
 			sender_id: self.id,
+			kind: self.kind(),
 			opcode: OpCode(0),
+			opname: Some("create_surface"),
 			args: vec![WireArgument::UnInt(id.raw())],
 		}
 	}
 
-	pub fn make_surface(
-		&self,
-		wlim: &mut IdentManager,
-	) -> Result<(Vec<AppRequest>, Rl<Surface>), Box<dyn Error>> {
-		// TODO allow choice by user
-		let surface = Surface::new(Id(0), PixelFormat::Argb888);
-		let id = wlim.new_id_registered(surface.clone());
-		surface.borrow_mut().id = id;
-
-		Ok((
-			vec![AppRequest::Request(Request {
-				inner: self.wl_create_surface(id),
-				opname: "create_surface",
-				kind: self.kind_str(),
-			})],
-			surface,
-		))
+	pub(crate) fn create_surface(&self, god: &mut God, id: Id) {
+		god.wlmm.queue_request(self.wl_create_surface(id));
 	}
 }
 
 impl WaylandObject for Compositor {
 	fn handle(
-		&self,
+		&mut self,
+		_god: &mut God,
 		_payload: &[u8],
 		_opcode: super::OpCode,
-		_fds: Vec<OwnedFd>,
-	) -> Result<Vec<AppRequest>, Box<dyn Error>> {
+		_fds: &[OwnedFd],
+	) -> Result<(), Box<dyn Error>> {
 		todo!()
 	}
 

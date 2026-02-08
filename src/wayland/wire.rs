@@ -17,50 +17,42 @@ use crate::{
 	wlog,
 };
 
-pub struct WireRequest {
-	pub sender_id: Id,
-	pub opcode: OpCode,
-	pub args: Vec<WireArgument>,
+pub(crate) struct WireRequest {
+	pub(crate) sender_id: Id,
+	pub(crate) kind: WaylandObjectKind,
+	pub(crate) opcode: OpCode,
+	pub(crate) opname: Option<&'static str>,
+	pub(crate) args: Vec<WireArgument>,
 }
 
-pub struct WireEventRaw {
-	pub recv_id: Id,
-	pub opcode: usize,
-	pub payload: Vec<u8>,
+pub(crate) struct WireEventRaw {
+	pub(crate) recv_id: Id,
+	pub(crate) opcode: OpCode,
+	pub(crate) payload: Vec<u8>,
 }
 
 #[derive(Debug)]
-pub enum WireArgument {
+pub(crate) enum WireArgument {
 	Int(i32),
 	UnInt(u32),
 	// add actual type and helper funs
 	FixedPrecision(u32),
 	String(String),
-	Obj(u32),
-	NewId(u32),
-	NewIdSpecific(&'static str, u32, u32),
+	Obj(Id),
+	NewId(Id),
+	NewIdSpecific(&'static str, u32, Id),
 	Arr(Vec<u8>),
 	// u32?
 	FileDescriptor(RawFd),
 }
 
-#[derive(Debug)]
-pub enum WireArgumentKind {
-	Int,
-	UnInt,
-	FixedPrecision,
-	String,
-	Obj,
-	NewId,
-	NewIdSpecific,
-	Arr,
-	FileDescriptor,
-}
-
 pub(crate) enum QueueEntry {
 	EventResponse(WireEventRaw),
-	Request((WireRequest, WaylandObjectKind)),
+	Request(WireRequest),
 	Sync(Id),
+	IdDeletion(Id),
+	CallbackDone(Id, u32),
+	Error(Id, Id, OpCode, String),
 }
 
 pub(crate) struct MessageManager {
@@ -80,7 +72,7 @@ impl Drop for MessageManager {
 }
 
 struct WireDebugMessage<'a> {
-	opcode: (Option<String>, OpCode),
+	opcode: (Option<&'static str>, OpCode),
 	object: (Option<WaylandObjectKind>, Option<Id>),
 	args: &'a Vec<WireArgument>,
 }
@@ -106,22 +98,23 @@ impl Display for WireDebugMessage<'_> {
 }
 
 impl WireRequest {
-	fn make_debug(
-		&self,
-		id: Option<Id>,
-		kind: Option<WaylandObjectKind>,
-		opcode_name: Option<String>,
-	) -> WireDebugMessage<'_> {
+	fn make_debug(&self, id: Option<Id>, kind: Option<WaylandObjectKind>) -> WireDebugMessage<'_> {
 		WireDebugMessage {
-			opcode: (opcode_name, self.opcode),
+			opcode: (self.opname, self.opcode),
 			object: (kind, id),
 			args: &self.args,
 		}
 	}
 }
 
+impl Default for MessageManager {
+	fn default() -> Self {
+		Self::from_defualt_env().unwrap()
+	}
+}
+
 impl MessageManager {
-	pub fn new(sockname: &str) -> Result<Self, Box<dyn Error>> {
+	pub(crate) fn new(sockname: &str) -> Result<Self, Box<dyn Error>> {
 		let base = env::var("XDG_RUNTIME_DIR")?;
 		let mut base = PathBuf::from(base);
 		base.push(sockname);
@@ -135,7 +128,7 @@ impl MessageManager {
 		Ok(wlmm)
 	}
 
-	pub fn from_defualt_env() -> Result<Self, Box<dyn Error>> {
+	pub(crate) fn from_defualt_env() -> Result<Self, Box<dyn Error>> {
 		let env = env::var("WAYLAND_DISPLAY");
 		match env {
 			Ok(x) => Ok(Self::new(&x)?),
@@ -146,23 +139,22 @@ impl MessageManager {
 		}
 	}
 
-	pub fn discon(&self) -> Result<(), Box<dyn Error>> {
+	pub(crate) fn discon(&self) -> Result<(), Box<dyn Error>> {
 		Ok(self.sock.shutdown(std::net::Shutdown::Both)?)
 	}
 
-	pub fn send_request_logged(
+	pub(crate) fn send_request_logged(
 		&self,
 		msg: &mut WireRequest,
 		id: Option<Id>,
 		kind: Option<WaylandObjectKind>,
-		opcode_name: Option<String>,
 	) -> Result<(), Box<dyn Error>> {
-		let dbugmsg = msg.make_debug(id, kind, opcode_name);
+		let dbugmsg = msg.make_debug(id, kind);
 		wlog!(DebugLevel::Trivial, "wlmm", format!("{}", dbugmsg), GREEN, NONE);
 		self.send_request(msg)
 	}
 
-	pub fn send_request(&self, msg: &mut WireRequest) -> Result<(), Box<dyn Error>> {
+	fn send_request(&self, msg: &mut WireRequest) -> Result<(), Box<dyn Error>> {
 		let mut buf: Vec<u8> = vec![];
 		buf.append(&mut Vec::from(msg.sender_id.raw().to_ne_bytes()));
 		buf.append(&mut vec![0, 0, 0, 0]);
@@ -194,7 +186,7 @@ impl MessageManager {
 		Ok(())
 	}
 
-	fn get_socket_data(&self, buf: &mut [u8]) -> Result<(usize, Vec<OwnedFd>), Box<dyn Error>> {
+	fn get_socket_data(&self, buf: &mut [u8]) -> Result<(usize, &[OwnedFd]), Box<dyn Error>> {
 		let mut iov = [IoSliceMut::new(buf)];
 
 		let mut aux_buf: [u8; 64] = [0; 64];
@@ -220,7 +212,7 @@ impl MessageManager {
 		}
 	}
 
-	pub fn get_events(&mut self) -> Result<(usize, Vec<OwnedFd>), Box<dyn Error>> {
+	pub(crate) fn get_events(&mut self) -> Result<(usize, &[OwnedFd]), Box<dyn Error>> {
 		let mut b = [0; 8192];
 		let (len, fds) = self.get_socket_data(&mut b)?;
 		if len == 0 {
@@ -257,14 +249,18 @@ impl MessageManager {
 		Ok((ctr, fds))
 	}
 
-	pub fn queue_request(&mut self, req: WireRequest, kind: WaylandObjectKind) {
-		self.q.push_back(QueueEntry::Request((req, kind)));
+	pub(crate) fn queue_request(&mut self, req: WireRequest) {
+		self.q.push_back(QueueEntry::Request(req));
+	}
+
+	pub(crate) fn queue(&mut self, entry: QueueEntry) {
+		self.q.push_back(entry);
 	}
 }
 
 impl WireArgument {
 	// size in bytes
-	pub fn size(&self) -> usize {
+	pub(crate) fn size(&self) -> usize {
 		match self {
 			WireArgument::Int(_) => 4,
 			WireArgument::UnInt(_) => 4,
@@ -278,7 +274,7 @@ impl WireArgument {
 		}
 	}
 
-	pub fn as_vec_u8(&self) -> Vec<u8> {
+	pub(crate) fn as_vec_u8(&self) -> Vec<u8> {
 		match self {
 			WireArgument::Int(x) => Vec::from(x.to_ne_bytes()),
 			WireArgument::UnInt(x) => Vec::from(x.to_ne_bytes()),
@@ -296,8 +292,8 @@ impl WireArgument {
 				// println!("complete len rn: {}", complete.len());
 				complete
 			}
-			WireArgument::Obj(x) => Vec::from(x.to_ne_bytes()),
-			WireArgument::NewId(x) => Vec::from(x.to_ne_bytes()),
+			WireArgument::Obj(x) => Vec::from(x.raw().to_ne_bytes()),
+			WireArgument::NewId(x) => Vec::from(x.raw().to_ne_bytes()),
 			WireArgument::NewIdSpecific(x, y, z) => {
 				let mut complete: Vec<u8> = vec![];
 				// str len
@@ -314,7 +310,7 @@ impl WireArgument {
 				// println!("len: {}, complete: {:?}", complete.len(), complete);
 				complete.append(&mut Vec::from(y.to_ne_bytes()));
 				// println!("len: {}, complete: {:?}", complete.len(), complete);
-				complete.append(&mut Vec::from(z.to_ne_bytes()));
+				complete.append(&mut Vec::from(z.raw().to_ne_bytes()));
 				// println!("len: {}, complete: {:?}", complete.len(), complete);
 				// println!("complete len rn: {}", complete.len());
 				complete

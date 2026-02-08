@@ -1,3 +1,5 @@
-pub trait BufferBackend: Sized {
-	fn new() -> Self;
+pub trait BufferBackend {
+	fn new_buffer(&mut self) -> Buffer;
 }
+
+pub(crate) struct Buffer {}

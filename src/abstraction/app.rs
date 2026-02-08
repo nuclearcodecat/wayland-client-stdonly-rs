@@ -5,42 +5,61 @@ use std::{collections::HashMap, error::Error, marker::PhantomData};
 
 use crate::{
 	Rl,
+	abstraction::{presenter::TopLevelWindow, wizard::TopLevelWindowWizard},
+	init_logger,
 	wayland::{
-		IdentManager, buffer::BufferBackend, compositor::Compositor, display::Display,
-		registry::Registry, surface::Surface, wire::MessageManager,
+		God, IdentManager, WaylandError, buffer::BufferBackend, compositor::Compositor,
+		display::Display, registry::Registry, shm::ShmBackend, surface::Surface,
+		wire::MessageManager,
 	},
 };
 
-pub trait Presenter<B: BufferBackend> {
-	fn backend(&self) -> B;
-	fn surface(&self) -> Rl<Surface>;
-	fn try_close(&mut self) -> bool {
-		true
+pub enum Presenter {
+	TopLevelWindow(TopLevelWindow),
+}
+
+#[derive(Default)]
+pub(crate) struct PresenterMap {
+	pub(crate) last_id: usize,
+	pub(crate) inner: HashMap<usize, Presenter>,
+}
+
+impl PresenterMap {
+	pub(crate) fn push(&mut self, to_push: Presenter) {
+		self.inner.insert(self.last_id, to_push);
+		self.last_id += 1;
 	}
 }
 
-pub(crate) struct PresenterMap<B: BufferBackend, P: Presenter<B>> {
-	pub(crate) last_id: usize,
-	pub(crate) inner: HashMap<usize, P>,
-	// todo remove this when i finally use the backend
-	pub(crate) _marker: PhantomData<B>,
-}
-
-pub(crate) struct App<B: BufferBackend, P: Presenter<B>> {
-	pub(crate) presenters: PresenterMap<B, P>,
+pub struct App {
+	pub(crate) presenters: PresenterMap,
 	pub(crate) compositor: Rl<Compositor>,
 	pub(crate) registry: Rl<Registry>,
 	pub(crate) display: Rl<Display>,
 	pub finished: bool,
-	pub(crate) wlmm: MessageManager,
-	pub(crate) wlim: IdentManager,
+	pub(crate) god: God,
 }
 
-impl<B: BufferBackend, P: Presenter<B>> App<B, P> {
-	pub fn new() -> Result<Self, Box<dyn Error>> {
-		let mut wlim = IdentManager::default();
-		let display = Display::new_registered(&mut wlim);
-		let registry = Registry::new_registered(&mut wlim);
-		todo!()
+impl App {
+	pub fn new() -> Result<Self, WaylandError> {
+		init_logger();
+
+		let mut god = God::default();
+		let display = Display::new_registered(&mut god);
+		let registry = Registry::new_registered(&mut god);
+		wait_for_sync!();
+		let compositor = Compositor::new_registered_bound(&mut god, &registry)?;
+		Ok(Self {
+			presenters: PresenterMap::default(),
+			compositor,
+			registry,
+			display,
+			finished: false,
+			god,
+		})
+	}
+
+	pub fn push_presenter(&mut self, presenter: Presenter) {
+		self.presenters.push(presenter);
 	}
 }

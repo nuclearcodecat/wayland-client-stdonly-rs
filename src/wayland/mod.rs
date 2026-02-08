@@ -6,39 +6,24 @@ use std::{
 };
 
 use crate::{
-	CYAN, DebugLevel, NONE, Rl, YELLOW,
-	wayland::{
-		registry::{RegistryEntry, RegistryName},
-		wire::WireRequest,
-	},
+	CYAN, DebugLevel, NONE, RED, Rl, YELLOW,
+	wayland::wire::{MessageManager, QueueEntry},
 	wlog,
 };
 
 pub(crate) mod buffer;
+pub(crate) mod callback;
 pub(crate) mod compositor;
 pub(crate) mod display;
 pub(crate) mod registry;
-pub(crate) mod shm;
+pub mod shm;
 pub(crate) mod surface;
 pub(crate) mod wire;
-
-struct Request {
-	inner: WireRequest,
-	opname: &'static str,
-	kind: &'static str,
-}
-
-pub(crate) enum AppRequest {
-	Request(Request),
-	Error(Box<dyn Error>),
-	IdDeletion(Id),
-	DebugMessage(DebugLevel, String),
-	RegistryPush(RegistryName, RegistryEntry),
-}
+pub(crate) mod xdg_shell;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct OpCode(pub(crate) u32);
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) struct Id(pub(crate) u32);
 
 impl Display for Id {
@@ -71,11 +56,12 @@ impl Raw for OpCode {
 
 pub(crate) trait WaylandObject {
 	fn handle(
-		&self,
+		&mut self,
+		god: &mut God,
 		payload: &[u8],
 		opcode: OpCode,
-		_fds: Vec<OwnedFd>,
-	) -> Result<Vec<AppRequest>, Box<dyn Error>>;
+		_fds: &[OwnedFd],
+	) -> Result<(), Box<dyn Error>>;
 	fn kind(&self) -> WaylandObjectKind;
 	fn kind_str(&self) -> &'static str {
 		self.kind().as_str()
@@ -83,7 +69,7 @@ pub(crate) trait WaylandObject {
 }
 
 #[derive(Debug)]
-pub(crate) enum WaylandError {
+pub enum WaylandError {
 	EmptyFromWirePayload,
 	RecvLenBad,
 	NoWaylandDisplay,
@@ -91,6 +77,7 @@ pub(crate) enum WaylandError {
 	ObjectNonExistent,
 	IdMapRemovalFail,
 	NotInRegistry(WaylandObjectKind),
+	InvalidEnumVariant(&'static str),
 }
 
 impl Error for WaylandError {}
@@ -114,6 +101,9 @@ impl Display for WaylandError {
 			}
 			WaylandError::NotInRegistry(kind) => {
 				write!(f, "object of kind {kind} not found in registry")
+			}
+			WaylandError::InvalidEnumVariant(kind) => {
+				write!(f, "an invalid {kind} enum variant has been received")
 			}
 		}
 	}
@@ -171,6 +161,7 @@ pub(crate) struct IdentManager {
 	pub(crate) idmap: HashMap<usize, Wlto>,
 	pub(crate) free: VecDeque<Id>,
 	pub(crate) top_id: usize,
+	pub(crate) current_sync_id: Option<Id>,
 }
 
 impl IdentManager {
@@ -257,3 +248,17 @@ pub enum PixelFormat {
 	Argb888,
 	Xrgb888,
 }
+
+impl Default for PixelFormat {
+	fn default() -> Self {
+		Self::Argb888
+	}
+}
+
+#[derive(Default)]
+pub(crate) struct God {
+	pub(crate) wlim: IdentManager,
+	pub(crate) wlmm: MessageManager,
+}
+
+impl God {}
