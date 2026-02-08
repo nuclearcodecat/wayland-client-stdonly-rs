@@ -1,48 +1,14 @@
 #![feature(unix_socket_ancillary_data)]
-#![feature(variant_count)]
-#![feature(deque_extend_front)]
-#![feature(random)]
 
-use std::sync::OnceLock;
+use std::{
+	cell::RefCell,
+	rc::{Rc, Weak},
+	sync::OnceLock,
+};
 
 pub mod abstraction;
-pub(crate) mod linux;
 pub(crate) mod wayland;
 
-// todo
-// - use OwnedFd because it's stupid to use OwnedFd
-
-// ===== future me notes
-//
-// call handle_events() on Context to collect events from the pipe
-// which will call handle() on the Wlto's (wayland trait objects).
-// they get the opcode and return EventActions, like log messages,
-// returning requests (ping, pong) and other stuff
-//
-// to make a window, spawn an XdgTopLevel through XdgWmBase (this
-// base also gets hooked to the Context). then make a Buffer and
-// attach it to a Surface with attach_buffer_obj(). you also need
-// a SharedMemory(Pool). spawn a loop and do whatever.
-// to get smooth frames, use a frame() callback on the surface.
-// Callback has a done attribute and XdgWmBase has an is_configured
-// attribute.
-// to draw on the buffer, get the slice (it's an attrib) from
-// SharedMemoryPool. then attach the buffer to the surface (wayland
-// call, not internal function) and commit it. the buffer needs to
-// be damaged to see any changes. repaint() damages the whole
-// buffer.
-//
-// if init_logger() is not called in the bin, the debug level will
-// always be 0 (none)
-//
-// DO NOT ATTACH A BUFFER BEFORE GETTING A CORRECT SIZE FROM THE
-// COMPOSITOR, YOU WASTED HOURS
-//
-// there's lots of notes about dmabuf in wayland/dmabuf.rs and there
-// probably will be more
-//
-//
-//
 // restructuring
 // - object should not have refs to god.
 // - remove dependency on god object - wltos funcalls should return
@@ -77,7 +43,7 @@ pub(crate) fn get_dbug() -> isize {
 #[repr(isize)]
 #[derive(PartialEq)]
 pub(crate) enum DebugLevel {
-	None,
+	None = -1,
 	Error,
 	Important,
 	Trivial,
@@ -109,5 +75,15 @@ macro_rules! wlog {
 macro_rules! dbug {
 	($msg:expr) => {
 		$crate::wlog!($crate::DebugLevel::Important, "DEBUG", $msg, $crate::CYAN, $crate::CYAN);
+	};
+}
+
+pub(crate) type Rl<T> = Rc<RefCell<T>>;
+pub(crate) type Wl<T> = Weak<RefCell<T>>;
+
+#[macro_export]
+macro_rules! rl {
+	($x:expr) => {
+		std::rc::Rc::new(std::cell::RefCell::new($x))
 	};
 }

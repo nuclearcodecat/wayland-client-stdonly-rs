@@ -2,7 +2,7 @@ use std::{
 	collections::VecDeque,
 	env,
 	error::Error,
-	fmt::Display,
+	fmt::{self, Display},
 	io::{IoSlice, IoSliceMut},
 	os::{
 		fd::{FromRawFd, OwnedFd, RawFd},
@@ -12,21 +12,17 @@ use std::{
 };
 
 use crate::{
-	CYAN, GREEN, NONE, RED, YELLOW,
-	wayland::{DebugLevel, IdentManager, OpCode, WaylandError, WaylandObjectKind},
+	CYAN, DebugLevel, GREEN, NONE, RED,
+	wayland::{Boxed, Id, OpCode, Raw, WaylandError, WaylandObjectKind},
 	wlog,
 };
 
-pub type Id = u32;
-
-#[derive(Debug)]
 pub struct WireRequest {
 	pub sender_id: Id,
-	pub opcode: usize,
+	pub opcode: OpCode,
 	pub args: Vec<WireArgument>,
 }
 
-#[derive(Debug)]
 pub struct WireEventRaw {
 	pub recv_id: Id,
 	pub opcode: usize,
@@ -61,14 +57,12 @@ pub enum WireArgumentKind {
 	FileDescriptor,
 }
 
-#[derive(Debug)]
 pub(crate) enum QueueEntry {
 	EventResponse(WireEventRaw),
 	Request((WireRequest, WaylandObjectKind)),
 	Sync(Id),
 }
 
-#[derive(Debug)]
 pub(crate) struct MessageManager {
 	pub(crate) sock: UnixStream,
 	pub(crate) q: VecDeque<QueueEntry>,
@@ -85,20 +79,6 @@ impl Drop for MessageManager {
 	}
 }
 
-impl Drop for IdentManager {
-	fn drop(&mut self) {
-		let len = self.idmap.len();
-		self.idmap.clear();
-		wlog!(
-			DebugLevel::Important,
-			"wlim",
-			format!("destroying self, cleared {len} objects from the map"),
-			YELLOW,
-			CYAN
-		);
-	}
-}
-
 struct WireDebugMessage<'a> {
 	opcode: (Option<String>, OpCode),
 	object: (Option<WaylandObjectKind>, Option<Id>),
@@ -112,10 +92,10 @@ impl Display for WireDebugMessage<'_> {
 		} else {
 			format!(": opcode {}, ", self.opcode.1)
 		};
-		let part2 = if let Some(kind) = self.object.0 {
+		let part2 = if let Some(kind) = &self.object.0 {
 			let mut og = format!("for object {:?}", kind);
-			if let Some(id) = self.object.1 {
-				og = og + &format!(" ({})", id);
+			if let Some(id) = &self.object.1 {
+				og = og + &format!(" ({id})");
 			};
 			og
 		} else {
@@ -184,7 +164,7 @@ impl MessageManager {
 
 	pub fn send_request(&self, msg: &mut WireRequest) -> Result<(), Box<dyn Error>> {
 		let mut buf: Vec<u8> = vec![];
-		buf.append(&mut Vec::from(msg.sender_id.to_ne_bytes()));
+		buf.append(&mut Vec::from(msg.sender_id.raw().to_ne_bytes()));
 		buf.append(&mut vec![0, 0, 0, 0]);
 		let mut fds = vec![];
 		for obj in msg.args.iter_mut() {
@@ -201,7 +181,7 @@ impl MessageManager {
 				_ => buf.append(&mut obj.as_vec_u8()),
 			}
 		}
-		let word2 = (buf.len() << 16) as u32 | (msg.opcode as u32 & 0x0000ffffu32);
+		let word2 = (buf.len() << 16) as u32 | (msg.opcode.raw() & 0x0000ffffu32);
 		let word2 = word2.to_ne_bytes();
 		for (en, ix) in (4..=7).enumerate() {
 			buf[ix] = word2[en];
@@ -265,7 +245,7 @@ impl MessageManager {
 			let payload = Vec::from(&b[cursor + 8..cursor + recv_len as usize]);
 
 			let event = WireEventRaw {
-				recv_id: sender_id,
+				recv_id: Id(sender_id),
 				opcode,
 				payload,
 			};
@@ -345,55 +325,11 @@ impl WireArgument {
 	}
 }
 
-pub(crate) trait FromWireSingle: Sized {
-	const ONE_ELEMENT_SIZE: usize;
-
-	fn from_wire_element(bytes: &[u8]) -> Result<Self, Box<dyn Error>>;
-}
-
-impl FromWireSingle for u32 {
-	const ONE_ELEMENT_SIZE: usize = 4;
-
-	fn from_wire_element(bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
-		is_payload_empty(bytes)?;
-		Ok(u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-	}
-}
-
-impl FromWireSingle for i32 {
-	const ONE_ELEMENT_SIZE: usize = 4;
-
-	fn from_wire_element(bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
-		is_payload_empty(bytes)?;
-		Ok(i32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-	}
-}
-
-impl FromWireSingle for u16 {
-	const ONE_ELEMENT_SIZE: usize = 2;
-
-	fn from_wire_element(bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
-		is_payload_empty(bytes)?;
-		Ok(u16::from_ne_bytes([bytes[0], bytes[1]]))
-	}
-}
-
-impl FromWireSingle for u64 {
-	const ONE_ELEMENT_SIZE: usize = 4;
-
-	fn from_wire_element(bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
-		is_payload_empty(bytes)?;
-		Ok(u64::from_ne_bytes([
-			bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-		]))
-	}
-}
-
 pub(crate) trait FromWirePayload: Sized {
 	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>>;
 }
 
-pub(crate) fn is_payload_empty(payload: &[u8]) -> Result<(), Box<dyn Error>> {
+fn is_empty(payload: &[u8]) -> Result<(), Box<dyn Error>> {
 	if payload.is_empty() {
 		Err(WaylandError::EmptyFromWirePayload.boxed())
 	} else {
@@ -401,20 +337,11 @@ pub(crate) fn is_payload_empty(payload: &[u8]) -> Result<(), Box<dyn Error>> {
 	}
 }
 
-impl<T> FromWirePayload for Vec<T>
-where
-	T: FromWireSingle,
-{
-	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
-		payload[4..].chunks(T::ONE_ELEMENT_SIZE).map(T::from_wire_element).collect()
-	}
-}
-
 impl FromWirePayload for String {
 	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
-		is_payload_empty(payload)?;
+		is_empty(payload)?;
 		let p = payload;
-		let len = u32::from_ne_bytes([p[0], p[1], p[2], p[3]]) as usize;
+		let len = u32::from_wire(payload)? as usize;
 		let ix = p[4..4 + len]
 			.iter()
 			.enumerate()
@@ -422,5 +349,45 @@ impl FromWirePayload for String {
 			.map(|(e, _)| e)
 			.unwrap_or_default();
 		Ok(String::from_utf8(p[4..4 + ix].to_vec())?)
+	}
+}
+
+impl FromWirePayload for u32 {
+	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+		is_empty(payload)?;
+		let p = payload;
+		Ok(u32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
+	}
+}
+
+impl FromWirePayload for i32 {
+	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+		is_empty(payload)?;
+		let p = payload;
+		Ok(i32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
+	}
+}
+
+impl FromWirePayload for Vec<u32> {
+	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+		is_empty(payload)?;
+		payload[4..].chunks(4).map(|chunk| u32::from_wire(chunk)).collect()
+	}
+}
+
+#[derive(Debug)]
+pub(crate) struct RecvError {
+	pub(crate) recv_id: Id,
+	pub(crate) id: Id,
+	pub(crate) code: OpCode,
+	pub(crate) msg: String,
+}
+
+impl Boxed for RecvError {}
+impl Error for RecvError {}
+
+impl Display for RecvError {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "id: {}, code: {}\nmsg: {}", self.id, self.code, self.msg)
 	}
 }
