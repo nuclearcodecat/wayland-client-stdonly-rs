@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
-	CYAN, DebugLevel, NONE, RED, Rl, YELLOW,
-	wayland::wire::{MessageManager, QueueEntry},
+	CYAN, DebugLevel, NONE, RED, Rl, WHITE, YELLOW,
+	wayland::wire::{Action, Consequence, MessageManager},
 	wlog,
 };
 
@@ -57,11 +57,10 @@ impl Raw for OpCode {
 pub(crate) trait WaylandObject {
 	fn handle(
 		&mut self,
-		god: &mut God,
 		payload: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<(), Box<dyn Error>>;
+	) -> Result<Vec<Action>, WaylandError>;
 	fn kind(&self) -> WaylandObjectKind;
 	fn kind_str(&self) -> &'static str {
 		self.kind().as_str()
@@ -78,6 +77,27 @@ pub enum WaylandError {
 	IdMapRemovalFail,
 	NotInRegistry(WaylandObjectKind),
 	InvalidEnumVariant(&'static str),
+	Io(std::io::Error),
+	Env(std::env::VarError),
+	Utf8(std::string::FromUtf8Error),
+}
+
+impl From<std::io::Error> for WaylandError {
+	fn from(er: std::io::Error) -> Self {
+		WaylandError::Io(er)
+	}
+}
+
+impl From<std::env::VarError> for WaylandError {
+	fn from(er: std::env::VarError) -> Self {
+		WaylandError::Env(er)
+	}
+}
+
+impl From<std::string::FromUtf8Error> for WaylandError {
+	fn from(er: std::string::FromUtf8Error) -> Self {
+		WaylandError::Utf8(er)
+	}
 }
 
 impl Error for WaylandError {}
@@ -104,6 +124,15 @@ impl Display for WaylandError {
 			}
 			WaylandError::InvalidEnumVariant(kind) => {
 				write!(f, "an invalid {kind} enum variant has been received")
+			}
+			WaylandError::Io(er) => {
+				write!(f, "std::io::Error received: {:?}", er)
+			}
+			WaylandError::Env(er) => {
+				write!(f, "std::env::VarError received: {:?}", er)
+			}
+			WaylandError::Utf8(er) => {
+				write!(f, "std::string::FromUtf8Error received: {:?}", er)
 			}
 		}
 	}
@@ -195,11 +224,11 @@ impl IdentManager {
 		id
 	}
 
-	pub(crate) fn free_id(&mut self, id: Id) -> Result<(), Box<dyn Error>> {
+	pub(crate) fn free_id(&mut self, id: Id) -> Result<(), WaylandError> {
 		let registered =
 			self.idmap.iter().find(|(k, _)| **k == id.raw() as usize).map(|(k, _)| k).copied();
 		if let Some(r) = registered {
-			self.idmap.remove(&r).ok_or(WaylandError::IdMapRemovalFail.boxed())?;
+			self.idmap.remove(&r).ok_or(WaylandError::IdMapRemovalFail)?;
 		}
 		self.free.push_back(id);
 		wlog!(
@@ -261,4 +290,127 @@ pub(crate) struct God {
 	pub(crate) wlmm: MessageManager,
 }
 
-impl God {}
+impl God {
+	pub fn handle_events(&mut self) -> Result<(), WaylandError> {
+		wlog!(DebugLevel::Trivial, "event handler", "called", CYAN, NONE);
+		let mut retries = 0;
+		let fds = loop {
+			let (len, fds) = self.wlmm.get_events()?;
+			if len > 0 || retries > 9999 {
+				break fds;
+			}
+			retries += 1;
+		};
+		let mut conseq: VecDeque<Consequence> = VecDeque::new();
+		while let Some(action) = self.wlmm.q.pop_front() {
+			match action {
+				Action::RequestRequest(ev) => {
+					wlog!(
+						DebugLevel::Trivial,
+						"event handler",
+						format!("going to handle {:?} ({})", ev.kind, ev.sender_id),
+						CYAN,
+						NONE
+					);
+					conseq.push_back(Consequence::Request(ev));
+				}
+				Action::Sync(id) => {
+					self.wlim.current_sync_id = Some(id);
+				}
+				Action::CallbackDone(id, data) => {
+					wlog!(
+						DebugLevel::Trivial,
+						"event handler",
+						format!("callback {} done with data {}", id, data),
+						CYAN,
+						NONE
+					);
+					if let Some(sid) = self.wlim.current_sync_id
+						&& sid == id
+					{
+						self.wlim.current_sync_id = None;
+						break;
+					}
+				}
+				Action::Error(id, id_, opcode, x) => {
+					conseq.push_back(Consequence::Trace(
+						DebugLevel::Error,
+						"error trace",
+						format!("{id} {id_} {opcode} {x}"),
+						RED,
+						RED,
+					));
+				}
+				Action::Trace(debug_level, kind, msg) => {
+					conseq.push_back(Consequence::Trace(debug_level, kind, msg, WHITE, NONE));
+				}
+				Action::EventResponse(raw) => {
+					let obj = self.wlim.find_obj_by_id(raw.recv_id)?;
+					let actions_new = obj.borrow_mut().handle(&raw.payload, raw.opcode, &fds)?;
+					self.wlmm.q.extend_front(actions_new);
+				}
+				Action::IdDeletion(id) => {
+					conseq.push_back(Consequence::IdDeletion(id));
+				}
+			}
+		}
+		while let Some(c) = conseq.pop_front() {
+			match c {
+				Consequence::Request(mut msg) => {
+					// self.wlmm.send_request_logged(&mut msg, Some(id), Some(kind), None)?;
+					self.wlmm.send_request_logged(&mut msg)?;
+				}
+				Consequence::IdDeletion(id) => {
+					wlog!(
+						DebugLevel::Trivial,
+						"event handler",
+						format!("id {id} deleted internally"),
+						CYAN,
+						NONE
+					);
+					self.wlim.free_id(id)?;
+				}
+				Consequence::Trace(dl, kind, msg, bg, fg) => {
+					wlog!(dl, kind, msg, bg, fg)
+				} // Consequence::Resize(w, h, xdgs) => {
+				  // 	let xdgs = xdgs.upgrade().to_wl_err()?;
+				  // 	let xdgs = xdgs.borrow_mut();
+				  // 	let att_buf =
+				  // 		xdgs.wl_surface.upgrade().to_wl_err()?.borrow().attached_buf.clone();
+
+				  // 	if let Some(buf_) = att_buf {
+				  // 		let mut buf = buf_.borrow_mut();
+				  // 		wlog!(
+				  // 			DebugLevel::Important,
+				  // 			"event handler",
+				  // 			format!("calling resize, w: {}, h: {}", w, h),
+				  // 			CYAN,
+				  // 			NONE
+				  // 		);
+				  // 		let new_buf_id =
+				  // 			self.wlim.new_id_registered(WaylandObjectKind::Buffer, buf_.clone());
+				  // 		let acts = buf.get_resize_actions(new_buf_id, (w, h))?;
+				  // 		conseq.extend_front(acts);
+				  // 	} else {
+				  // 		wlog!(
+				  // 			DebugLevel::Important,
+				  // 			"event handler",
+				  // 			"buf not present at resize",
+				  // 			CYAN,
+				  // 			YELLOW
+				  // 		);
+				  // 	}
+
+				  // 	let surf = xdgs.wl_surface.upgrade().to_wl_err()?;
+				  // 	let mut surf = surf.borrow_mut();
+				  // 	surf.w = w;
+				  // 	surf.h = h;
+				  // }
+				  // Consequence::DropObject(id) => {
+				  // 	self.wlim.idmap.remove(&id);
+				  // }
+			};
+		}
+		Ok(())
+	}
+}

@@ -1,11 +1,11 @@
-use std::{collections::HashMap, error::Error, fmt, os::fd::OwnedFd};
+use std::{collections::HashMap, fmt, os::fd::OwnedFd};
 
 use crate::{
 	NONE, Rl, WHITE, handle_log, rl,
 	wayland::{
-		Boxed, DebugLevel, God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		DebugLevel, God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
 		display::Display,
-		wire::{FromWirePayload, WireArgument, WireRequest},
+		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 	},
 	wlog,
 };
@@ -110,11 +110,11 @@ impl Registry {
 impl WaylandObject for Registry {
 	fn handle(
 		&mut self,
-		_god: &mut God,
 		p: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<(), Box<dyn Error>> {
+	) -> Result<Vec<Action>, WaylandError> {
+		let mut pending = vec![];
 		match opcode.raw() {
 			0 => {
 				let name = u32::from_wire(p)?;
@@ -128,7 +128,7 @@ impl WaylandObject for Registry {
 						version,
 					},
 				);
-				handle_log!(self, DebugLevel::Trivial, msg);
+				handle_log!(pending, self, DebugLevel::Trivial, msg);
 			}
 			// can global_remove even happen
 			1 => {
@@ -136,10 +136,10 @@ impl WaylandObject for Registry {
 				todo!()
 			}
 			inv => {
-				return Err(WaylandError::InvalidOpCode(OpCode(inv), self.kind_str()).boxed());
+				return Err(WaylandError::InvalidOpCode(OpCode(inv), self.kind_str()));
 			}
 		}
-		Ok(())
+		Ok(pending)
 	}
 
 	fn kind(&self) -> WaylandObjectKind {

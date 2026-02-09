@@ -3,10 +3,10 @@ use std::{error::Error, os::fd::OwnedFd};
 use crate::{
 	Rl, rl,
 	wayland::{
-		Boxed, God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
 		callback::Callback,
 		registry::Registry,
-		wire::{FromWirePayload, QueueEntry, WireArgument, WireRequest},
+		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 	},
 };
 
@@ -60,11 +60,11 @@ impl Display {
 		}
 	}
 
-	pub(crate) fn sync(&self, god: &mut God) -> Result<Rl<Callback>, Box<dyn Error>> {
+	pub(crate) fn sync(&self, god: &mut God) -> Result<Rl<Callback>, WaylandError> {
 		let cb = Callback::new_registered(god);
 		let id = cb.borrow().id;
-		god.wlmm.queue(QueueEntry::Request(self.wl_sync(id)));
-		god.wlmm.queue(QueueEntry::Sync(id));
+		god.wlmm.queue(Action::RequestRequest(self.wl_sync(id)));
+		god.wlmm.queue(Action::Sync(id));
 		Ok(cb)
 	}
 }
@@ -72,27 +72,27 @@ impl Display {
 impl WaylandObject for Display {
 	fn handle(
 		&mut self,
-		god: &mut God,
 		p: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<(), Box<dyn Error>> {
+	) -> Result<Vec<Action>, WaylandError> {
+		let mut pending = vec![];
 		match opcode.raw() {
 			0 => {
 				let obj_id = u32::from_wire(p)?;
 				let code = u32::from_wire(&p[4..])?;
 				let message = String::from_wire(&p[8..])?;
-				god.wlmm.queue(QueueEntry::Error(self.id, Id(obj_id), OpCode(code), message));
+				pending.push(Action::Error(self.id, Id(obj_id), OpCode(code), message));
 			}
 			1 => {
 				let deleted_id = u32::from_wire(p)?;
-				god.wlmm.queue(QueueEntry::IdDeletion(Id(deleted_id)));
+				pending.push(Action::IdDeletion(Id(deleted_id)));
 			}
 			inv => {
-				return Err(WaylandError::InvalidOpCode(OpCode(inv), self.kind_str()).boxed());
+				return Err(WaylandError::InvalidOpCode(OpCode(inv), self.kind_str()));
 			}
 		}
-		Ok(())
+		Ok(pending)
 	}
 
 	fn kind(&self) -> WaylandObjectKind {
@@ -103,7 +103,7 @@ impl WaylandObject for Display {
 #[macro_export]
 macro_rules! wait_for_sync {
 	($display:expr, $god: expr) => {
-		let cb = $display.borrow().sync()?;
+		let cb = $display.borrow().sync($god)?;
 		while !cb.borrow().done {
 			$god.handle_events()?;
 		}

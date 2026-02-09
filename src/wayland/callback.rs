@@ -3,8 +3,8 @@ use std::os::fd::OwnedFd;
 use crate::{
 	Rl, rl,
 	wayland::{
-		Boxed, God, Id, Raw, WaylandError, WaylandObject, WaylandObjectKind,
-		wire::{FromWirePayload, QueueEntry},
+		God, Id, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		wire::{Action, FromWirePayload},
 	},
 };
 
@@ -34,21 +34,21 @@ impl Callback {
 impl WaylandObject for Callback {
 	fn handle(
 		&mut self,
-		god: &mut God,
 		payload: &[u8],
 		opcode: super::OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<(), Box<dyn std::error::Error>> {
+	) -> Result<Vec<Action>, WaylandError> {
+		let mut pending = vec![];
 		match opcode.raw() {
 			0 => {
 				let data = u32::from_wire(payload)?;
 				self.done = true;
 				self.data = Some(data);
-				god.wlmm.queue(QueueEntry::CallbackDone(self.id, data));
-				Ok(())
+				pending.push(Action::CallbackDone(self.id, data));
 			}
-			_ => Err(WaylandError::InvalidOpCode(opcode, self.kind_str()).boxed()),
+			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind_str())),
 		}
+		Ok(pending)
 	}
 
 	fn kind(&self) -> WaylandObjectKind {

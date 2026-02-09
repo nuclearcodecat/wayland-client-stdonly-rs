@@ -6,7 +6,7 @@ use std::{collections::HashMap, error::Error, marker::PhantomData};
 use crate::{
 	Rl,
 	abstraction::{presenter::TopLevelWindow, wizard::TopLevelWindowWizard},
-	init_logger,
+	init_logger, wait_for_sync,
 	wayland::{
 		God, IdentManager, WaylandError, buffer::BufferBackend, compositor::Compositor,
 		display::Display, registry::Registry, shm::ShmBackend, surface::Surface,
@@ -47,7 +47,7 @@ impl App {
 		let mut god = God::default();
 		let display = Display::new_registered(&mut god);
 		let registry = Registry::new_registered(&mut god);
-		wait_for_sync!();
+		wait_for_sync!(display, &mut god);
 		let compositor = Compositor::new_registered_bound(&mut god, &registry)?;
 		Ok(Self {
 			presenters: PresenterMap::default(),

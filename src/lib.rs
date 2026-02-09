@@ -73,8 +73,16 @@ macro_rules! dbug {
 
 #[macro_export]
 macro_rules! handle_log {
-	($self:expr, $lvl:expr, $msg:expr) => {
-		$crate::wlog!($lvl, $self.kind_str(), $msg, $crate::WHITE, $crate::NONE);
+	($pending:expr, $self:expr, $lvl:expr, $msg:expr) => {
+		$pending.push($crate::wayland::wire::Action::Trace($lvl, $self.kind_str(), $msg))
+		// $crate::wlog!($lvl, $pending.kind_str(), $msg, $crate::WHITE, $crate::NONE);
+	};
+}
+
+#[macro_export]
+macro_rules! qpush {
+	($pending:expr, $fn:expr) => {
+		$pending.push($crate::wayland::wire::Action::RequestRequest($fn))
 	};
 }
 

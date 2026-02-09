@@ -1,8 +1,11 @@
-use std::{error::Error, os::fd::OwnedFd};
+use std::os::fd::OwnedFd;
 
 use crate::{
 	Rl, rl,
-	wayland::{God, Id, PixelFormat, WaylandObject, WaylandObjectKind, compositor::Compositor},
+	wayland::{
+		God, Id, PixelFormat, WaylandError, WaylandObject, WaylandObjectKind,
+		compositor::Compositor, wire::Action,
+	},
 };
 
 pub(crate) struct Surface {
@@ -39,11 +42,10 @@ impl Surface {
 impl WaylandObject for Surface {
 	fn handle(
 		&mut self,
-		_god: &mut God,
 		_payload: &[u8],
 		_opcode: super::OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<(), Box<dyn Error>> {
+	) -> Result<Vec<Action>, WaylandError> {
 		todo!()
 	}
 

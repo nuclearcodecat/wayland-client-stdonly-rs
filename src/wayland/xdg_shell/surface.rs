@@ -1,10 +1,10 @@
-use std::{error::Error, os::fd::OwnedFd};
+use std::os::fd::OwnedFd;
 
 use crate::{
-	DebugLevel, Rl, handle_log, rl,
+	DebugLevel, Rl, handle_log, qpush, rl,
 	wayland::{
-		Boxed, God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
-		wire::{FromWirePayload, WireArgument, WireRequest},
+		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 		xdg_shell::wm_base::XdgWmBase,
 	},
 };
@@ -58,10 +58,6 @@ impl XdgSurface {
 		}
 	}
 
-	pub(crate) fn ack_configure(&self, god: &mut God, serial: u32) {
-		god.wlmm.queue_request(self.wl_ack_configure(serial));
-	}
-
 	fn wl_destroy(&self) -> WireRequest {
 		WireRequest {
 			sender_id: self.id,
@@ -76,22 +72,28 @@ impl XdgSurface {
 impl WaylandObject for XdgSurface {
 	fn handle(
 		&mut self,
-		god: &mut God,
 		payload: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<(), Box<dyn Error>> {
+	) -> Result<Vec<Action>, WaylandError> {
+		let mut pending = vec![];
 		match opcode.raw() {
 			// configure
 			0 => {
-				handle_log!(self, DebugLevel::Important, format!("configure received, acking"));
+				handle_log!(
+					pending,
+					self,
+					DebugLevel::Important,
+					format!("configure received, acking")
+				);
 				self.is_configured = true;
 				let serial = u32::from_wire(payload)?;
-				self.ack_configure(god, serial);
+
+				qpush!(pending, self.wl_ack_configure(serial));
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind_str()).boxed()),
+			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind_str())),
 		}
-		Ok(())
+		Ok(pending)
 	}
 
 	fn kind(&self) -> WaylandObjectKind {

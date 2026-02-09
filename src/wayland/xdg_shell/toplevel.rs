@@ -1,10 +1,10 @@
-use std::{error::Error, os::fd::OwnedFd};
+use std::os::fd::OwnedFd;
 
 use crate::{
 	DebugLevel, Rl, handle_log, rl,
 	wayland::{
-		Boxed, God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
-		wire::{FromWirePayload, WireArgument, WireRequest},
+		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 		xdg_shell::surface::XdgSurface,
 	},
 };
@@ -124,11 +124,11 @@ enum XdgTopLevelStates {
 impl WaylandObject for XdgTopLevel {
 	fn handle(
 		&mut self,
-		god: &mut God,
 		payload: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<(), Box<dyn Error>> {
+	) -> Result<Vec<Action>, WaylandError> {
+		let mut pending = vec![];
 		match opcode.raw() {
 			// configure
 			0 => {
@@ -146,11 +146,11 @@ impl WaylandObject for XdgTopLevel {
 					})
 					.collect::<Result<Vec<_>, _>>()?;
 				handle_log!(
+					pending,
 					self,
 					DebugLevel::Important,
 					format!("configure // w: {w}, h: {h}, states: {states:?}")
 				);
-				// i can push this myself since i have access to god
 				// if w != 0 && h != 0 {
 				// 	pending.push(EventAction::Resize(w, h, self.parent.clone()));
 				// }
@@ -158,7 +158,7 @@ impl WaylandObject for XdgTopLevel {
 			// close
 			1 => {
 				self.close_requested = true;
-				handle_log!(self, DebugLevel::Important, "close requested");
+				handle_log!(pending, self, DebugLevel::Important, String::from("close requested"));
 			}
 			// configure_bounds
 			2 => {
@@ -168,9 +168,9 @@ impl WaylandObject for XdgTopLevel {
 			3 => {
 				todo!()
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind_str()).boxed()),
+			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind_str())),
 		}
-		Ok(())
+		Ok(pending)
 	}
 
 	fn kind(&self) -> WaylandObjectKind {

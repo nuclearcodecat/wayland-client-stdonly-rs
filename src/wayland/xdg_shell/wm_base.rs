@@ -1,11 +1,11 @@
-use std::{error::Error, os::fd::OwnedFd};
+use std::os::fd::OwnedFd;
 
 use crate::{
-	Rl, rl,
+	Rl, qpush, rl,
 	wayland::{
-		Boxed, God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
 		registry::Registry,
-		wire::{FromWirePayload, WireArgument, WireRequest},
+		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 	},
 };
 
@@ -52,10 +52,6 @@ impl XdgWmBase {
 		}
 	}
 
-	pub(crate) fn pong(&self, serial: u32, god: &mut God) {
-		god.wlmm.queue_request(self.wl_pong(serial))
-	}
-
 	fn wl_get_xdg_surface(&self, wl_surface_id: Id, xdg_surface_id: Id) -> WireRequest {
 		WireRequest {
 			sender_id: self.id,
@@ -74,20 +70,20 @@ impl XdgWmBase {
 impl WaylandObject for XdgWmBase {
 	fn handle(
 		&mut self,
-		god: &mut God,
 		payload: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<(), Box<dyn Error>> {
+	) -> Result<Vec<Action>, WaylandError> {
+		let mut pending = vec![];
 		match opcode.raw() {
 			// ping
 			0 => {
 				let serial = u32::from_wire(payload)?;
-				self.pong(serial, god);
+				qpush!(pending, self.wl_pong(serial));
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind_str()).boxed()),
+			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind_str())),
 		}
-		Ok(())
+		Ok(pending)
 	}
 
 	fn kind(&self) -> WaylandObjectKind {

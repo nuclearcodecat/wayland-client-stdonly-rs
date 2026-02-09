@@ -1,11 +1,11 @@
-use std::{error::Error, os::fd::OwnedFd};
+use std::os::fd::OwnedFd;
 
 use crate::{
 	Rl, rl,
 	wayland::{
 		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
 		registry::Registry,
-		wire::{WireArgument, WireRequest},
+		wire::{Action, WireArgument, WireRequest},
 	},
 };
 
@@ -54,11 +54,10 @@ impl Compositor {
 impl WaylandObject for Compositor {
 	fn handle(
 		&mut self,
-		_god: &mut God,
 		_payload: &[u8],
 		_opcode: super::OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<(), Box<dyn Error>> {
+	) -> Result<Vec<Action>, WaylandError> {
 		todo!()
 	}
 

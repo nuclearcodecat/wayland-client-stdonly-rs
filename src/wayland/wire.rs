@@ -46,18 +46,25 @@ pub(crate) enum WireArgument {
 	FileDescriptor(RawFd),
 }
 
-pub(crate) enum QueueEntry {
+pub(crate) enum Action {
+	RequestRequest(WireRequest),
 	EventResponse(WireEventRaw),
-	Request(WireRequest),
-	Sync(Id),
-	IdDeletion(Id),
 	CallbackDone(Id, u32),
+	Sync(Id),
 	Error(Id, Id, OpCode, String),
+	Trace(DebugLevel, &'static str, String),
+	IdDeletion(Id),
+}
+
+pub(crate) enum Consequence {
+	Request(WireRequest),
+	IdDeletion(Id),
+	Trace(DebugLevel, &'static str, String, &'static str, &'static str),
 }
 
 pub(crate) struct MessageManager {
 	pub(crate) sock: UnixStream,
-	pub(crate) q: VecDeque<QueueEntry>,
+	pub(crate) q: VecDeque<Action>,
 }
 
 impl Drop for MessageManager {
@@ -114,7 +121,7 @@ impl Default for MessageManager {
 }
 
 impl MessageManager {
-	pub(crate) fn new(sockname: &str) -> Result<Self, Box<dyn Error>> {
+	pub(crate) fn new(sockname: &str) -> Result<Self, WaylandError> {
 		let base = env::var("XDG_RUNTIME_DIR")?;
 		let mut base = PathBuf::from(base);
 		base.push(sockname);
@@ -128,33 +135,33 @@ impl MessageManager {
 		Ok(wlmm)
 	}
 
-	pub(crate) fn from_defualt_env() -> Result<Self, Box<dyn Error>> {
+	pub(crate) fn from_defualt_env() -> Result<Self, WaylandError> {
 		let env = env::var("WAYLAND_DISPLAY");
 		match env {
 			Ok(x) => Ok(Self::new(&x)?),
 			Err(er) => match er {
-				std::env::VarError::NotPresent => Err(WaylandError::NoWaylandDisplay.boxed()),
-				_ => Err(Box::new(er)),
+				std::env::VarError::NotPresent => Err(WaylandError::NoWaylandDisplay),
+				_ => Err(WaylandError::Env(er)),
 			},
 		}
 	}
 
-	pub(crate) fn discon(&self) -> Result<(), Box<dyn Error>> {
+	pub(crate) fn discon(&self) -> Result<(), WaylandError> {
 		Ok(self.sock.shutdown(std::net::Shutdown::Both)?)
 	}
 
 	pub(crate) fn send_request_logged(
 		&self,
 		msg: &mut WireRequest,
-		id: Option<Id>,
-		kind: Option<WaylandObjectKind>,
-	) -> Result<(), Box<dyn Error>> {
-		let dbugmsg = msg.make_debug(id, kind);
-		wlog!(DebugLevel::Trivial, "wlmm", format!("{}", dbugmsg), GREEN, NONE);
+		// id: Option<Id>,
+		// kind: Option<WaylandObjectKind>,
+	) -> Result<(), WaylandError> {
+		// let dbugmsg = msg.make_debug(id, kind);
+		// wlog!(DebugLevel::Trivial, "wlmm", format!("{dbugmsg}"), GREEN, NONE);
 		self.send_request(msg)
 	}
 
-	fn send_request(&self, msg: &mut WireRequest) -> Result<(), Box<dyn Error>> {
+	fn send_request(&self, msg: &mut WireRequest) -> Result<(), WaylandError> {
 		let mut buf: Vec<u8> = vec![];
 		buf.append(&mut Vec::from(msg.sender_id.raw().to_ne_bytes()));
 		buf.append(&mut vec![0, 0, 0, 0]);
@@ -186,7 +193,7 @@ impl MessageManager {
 		Ok(())
 	}
 
-	fn get_socket_data(&self, buf: &mut [u8]) -> Result<(usize, &[OwnedFd]), Box<dyn Error>> {
+	fn get_socket_data(&self, buf: &mut [u8]) -> Result<(usize, Vec<OwnedFd>), WaylandError> {
 		let mut iov = [IoSliceMut::new(buf)];
 
 		let mut aux_buf: [u8; 64] = [0; 64];
@@ -207,12 +214,12 @@ impl MessageManager {
 			}
 			Err(er) => match er.kind() {
 				std::io::ErrorKind::WouldBlock => Ok((0, vec![])),
-				_ => Err(Box::new(er)),
+				_ => Err(WaylandError::Io(er)),
 			},
 		}
 	}
 
-	pub(crate) fn get_events(&mut self) -> Result<(usize, &[OwnedFd]), Box<dyn Error>> {
+	pub(crate) fn get_events(&mut self) -> Result<(usize, Vec<OwnedFd>), WaylandError> {
 		let mut b = [0; 8192];
 		let (len, fds) = self.get_socket_data(&mut b)?;
 		if len == 0 {
@@ -230,7 +237,7 @@ impl MessageManager {
 			let recv_len = byte2 >> 16;
 			// println!("len: {}", recv_len);
 			if recv_len < 8 {
-				return Err(WaylandError::RecvLenBad.boxed());
+				return Err(WaylandError::RecvLenBad);
 			}
 			let opcode = (byte2 & 0x0000ffff) as usize;
 
@@ -238,10 +245,10 @@ impl MessageManager {
 
 			let event = WireEventRaw {
 				recv_id: Id(sender_id),
-				opcode,
+				opcode: OpCode(opcode as u32),
 				payload,
 			};
-			self.q.push_back(QueueEntry::EventResponse(event));
+			self.q.push_back(Action::EventResponse(event));
 			ctr += 1;
 
 			cursor += recv_len as usize;
@@ -250,10 +257,10 @@ impl MessageManager {
 	}
 
 	pub(crate) fn queue_request(&mut self, req: WireRequest) {
-		self.q.push_back(QueueEntry::Request(req));
+		self.q.push_back(Action::RequestRequest(req));
 	}
 
-	pub(crate) fn queue(&mut self, entry: QueueEntry) {
+	pub(crate) fn queue(&mut self, entry: Action) {
 		self.q.push_back(entry);
 	}
 }
@@ -322,19 +329,19 @@ impl WireArgument {
 }
 
 pub(crate) trait FromWirePayload: Sized {
-	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>>;
+	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError>;
 }
 
-fn is_empty(payload: &[u8]) -> Result<(), Box<dyn Error>> {
+fn is_empty(payload: &[u8]) -> Result<(), WaylandError> {
 	if payload.is_empty() {
-		Err(WaylandError::EmptyFromWirePayload.boxed())
+		Err(WaylandError::EmptyFromWirePayload)
 	} else {
 		Ok(())
 	}
 }
 
 impl FromWirePayload for String {
-	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
 		is_empty(payload)?;
 		let p = payload;
 		let len = u32::from_wire(payload)? as usize;
@@ -349,7 +356,7 @@ impl FromWirePayload for String {
 }
 
 impl FromWirePayload for u32 {
-	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
 		is_empty(payload)?;
 		let p = payload;
 		Ok(u32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
@@ -357,7 +364,7 @@ impl FromWirePayload for u32 {
 }
 
 impl FromWirePayload for i32 {
-	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
 		is_empty(payload)?;
 		let p = payload;
 		Ok(i32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
@@ -365,7 +372,7 @@ impl FromWirePayload for i32 {
 }
 
 impl FromWirePayload for Vec<u32> {
-	fn from_wire(payload: &[u8]) -> Result<Self, Box<dyn Error>> {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
 		is_empty(payload)?;
 		payload[4..].chunks(4).map(|chunk| u32::from_wire(chunk)).collect()
 	}
