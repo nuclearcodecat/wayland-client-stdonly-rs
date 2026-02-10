@@ -66,7 +66,7 @@ impl XdgTopLevel {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(3),
-			opname: Some("set_app_id"),
+			opname: "set_app_id",
 			args: vec![WireArgument::String(String::from(id))],
 		}
 	}
@@ -81,7 +81,7 @@ impl XdgTopLevel {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(2),
-			opname: Some("set_title"),
+			opname: "set_title",
 			args: vec![WireArgument::String(String::from(id))],
 		}
 	}
@@ -96,7 +96,7 @@ impl XdgTopLevel {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(0),
-			opname: Some("destroy"),
+			opname: "destroy",
 			args: vec![],
 		}
 	}
@@ -168,7 +168,7 @@ impl WaylandObject for XdgTopLevel {
 			3 => {
 				todo!()
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind_str())),
+			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind())),
 		}
 		Ok(pending)
 	}

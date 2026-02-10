@@ -46,7 +46,7 @@ impl WaylandObject for Callback {
 				self.data = Some(data);
 				pending.push(Action::CallbackDone(self.id, data));
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind_str())),
+			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind())),
 		}
 		Ok(pending)
 	}

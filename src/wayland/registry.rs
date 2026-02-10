@@ -53,8 +53,7 @@ impl Registry {
 
 	pub(crate) fn new_registered_made(god: &mut God, display: &Rl<Display>) -> Rl<Self> {
 		let reg = Self::new_registered(god);
-		let id = god.wlim.new_id_registered(reg.clone());
-		display.borrow().get_registry(god, id);
+		display.borrow().get_registry(god, reg.borrow().id);
 		reg
 	}
 
@@ -69,7 +68,7 @@ impl Registry {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(0),
-			opname: Some("bind"),
+			opname: "bind",
 			args: vec![
 				WireArgument::UnInt(object.raw()),
 				WireArgument::NewIdSpecific(name, version, id),
@@ -135,8 +134,8 @@ impl WaylandObject for Registry {
 				// let name = decode_event_payload(&p[8..], WireArgumentKind::UnInt)?;
 				todo!()
 			}
-			inv => {
-				return Err(WaylandError::InvalidOpCode(OpCode(inv), self.kind_str()));
+			_ => {
+				return Err(WaylandError::InvalidOpCode(opcode, self.kind()));
 			}
 		}
 		Ok(pending)

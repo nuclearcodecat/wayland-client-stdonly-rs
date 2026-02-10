@@ -1,9 +1,10 @@
 use crate::{
 	Rl,
 	abstraction::{
-		app::{App, Presenter},
-		presenter::TopLevelWindow,
+		app::App,
+		presenter::{Presenter, PresenterObject, TopLevelWindow},
 	},
+	wait_for_sync,
 	wayland::{
 		PixelFormat, WaylandError,
 		buffer::BufferBackend,
@@ -13,11 +14,11 @@ use crate::{
 	},
 };
 
-pub struct TopLevelWindowWizard<'a, B: BufferBackend + Default = ShmBackend> {
+pub struct TopLevelWindowWizard<'a, B: BufferBackend = ShmBackend> {
 	pub(crate) app_id: Option<String>,
 	pub(crate) title: Option<String>,
-	pub(crate) width: Option<i32>,
-	pub(crate) height: Option<i32>,
+	pub(crate) width: Option<u32>,
+	pub(crate) height: Option<u32>,
 	pub(crate) parent: &'a mut App,
 	pub(crate) close_cb: Option<Box<dyn FnMut() -> bool>>,
 	pub(crate) backend: Option<B>,
@@ -25,7 +26,7 @@ pub struct TopLevelWindowWizard<'a, B: BufferBackend + Default = ShmBackend> {
 	pub(crate) xdg_wm_base: Option<Rl<XdgWmBase>>,
 }
 
-impl<'a, B: BufferBackend + Default + 'static> TopLevelWindowWizard<'a, B> {
+impl<'a, B: BufferBackend + 'static> TopLevelWindowWizard<'a, B> {
 	pub fn new(parent: &'a mut App) -> Self {
 		Self {
 			app_id: None,
@@ -50,12 +51,12 @@ impl<'a, B: BufferBackend + Default + 'static> TopLevelWindowWizard<'a, B> {
 		self
 	}
 
-	pub fn with_width(mut self, width: i32) -> Self {
+	pub fn with_width(mut self, width: u32) -> Self {
 		self.width = Some(width);
 		self
 	}
 
-	pub fn with_height(mut self, height: i32) -> Self {
+	pub fn with_height(mut self, height: u32) -> Self {
 		self.height = Some(height);
 		self
 	}
@@ -83,18 +84,23 @@ impl<'a, B: BufferBackend + Default + 'static> TopLevelWindowWizard<'a, B> {
 		self
 	}
 
-	pub fn spawn(self) -> Result<Presenter, WaylandError> {
-		let god = &mut self.parent.god;
+	pub fn spawn(self) -> Result<Box<dyn PresenterObject>, WaylandError> {
+		let mut god = &mut self.parent.god;
 		let registry = &self.parent.registry;
 		let compositor = &self.parent.compositor;
 		let pf = self.pf.unwrap_or_default();
-		let surface = Surface::new_registered_made(god, compositor, pf);
+		let w = self.width.unwrap_or(800);
+		let h = self.height.unwrap_or(600);
+		let surface = Surface::new_registered_made(god, compositor, w, h, pf);
 		let xdg_wm_base =
 			self.xdg_wm_base.unwrap_or(XdgWmBase::new_registered_bound(registry, god)?);
 		let xdg_surface = XdgSurface::new_registered(god, &xdg_wm_base, surface.borrow().id);
 		let xdg_toplevel = XdgTopLevel::new_registered_gotten(god, &xdg_surface);
-		let backend = Box::new(self.backend.unwrap_or_default());
-		let presenter = Presenter::TopLevelWindow(TopLevelWindow {
+		let backend = Box::new(self.backend.ok_or(WaylandError::RequiredValueNone(
+			"attach a BufferBackend trait object with ::with_backend()",
+		))?);
+		wait_for_sync!(&self.parent.display, &mut god);
+		let tlw = TopLevelWindow {
 			xdg_wm_base,
 			xdg_toplevel,
 			xdg_surface,
@@ -102,7 +108,11 @@ impl<'a, B: BufferBackend + Default + 'static> TopLevelWindowWizard<'a, B> {
 			surface,
 			app_id: self.app_id,
 			title: self.title,
-		});
-		Ok(presenter)
+			close_cb: Box::new(|| true),
+			frame: 0,
+			frame_cb: None,
+			finished: false,
+		};
+		Ok(Box::new(tlw))
 	}
 }

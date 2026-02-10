@@ -5,31 +5,17 @@ use std::{collections::HashMap, error::Error, marker::PhantomData};
 
 use crate::{
 	Rl,
-	abstraction::{presenter::TopLevelWindow, wizard::TopLevelWindowWizard},
-	init_logger, wait_for_sync,
+	abstraction::{
+		presenter::{Presenter, PresenterMap, PresenterObject, TopLevelWindow},
+		wizard::TopLevelWindowWizard,
+	},
+	dbug, init_logger, wait_for_sync,
 	wayland::{
-		God, IdentManager, WaylandError, buffer::BufferBackend, compositor::Compositor,
-		display::Display, registry::Registry, shm::ShmBackend, surface::Surface,
-		wire::MessageManager,
+		God, IdentManager, PixelFormat, WaylandError, buffer::BufferBackend,
+		compositor::Compositor, display::Display, registry::Registry, shm::ShmBackend,
+		surface::Surface, wire::MessageManager,
 	},
 };
-
-pub enum Presenter {
-	TopLevelWindow(TopLevelWindow),
-}
-
-#[derive(Default)]
-pub(crate) struct PresenterMap {
-	pub(crate) last_id: usize,
-	pub(crate) inner: HashMap<usize, Presenter>,
-}
-
-impl PresenterMap {
-	pub(crate) fn push(&mut self, to_push: Presenter) {
-		self.inner.insert(self.last_id, to_push);
-		self.last_id += 1;
-	}
-}
 
 pub struct App {
 	pub(crate) presenters: PresenterMap,
@@ -46,7 +32,7 @@ impl App {
 
 		let mut god = God::default();
 		let display = Display::new_registered(&mut god);
-		let registry = Registry::new_registered(&mut god);
+		let registry = Registry::new_registered_made(&mut god, &display);
 		wait_for_sync!(display, &mut god);
 		let compositor = Compositor::new_registered_bound(&mut god, &registry)?;
 		Ok(Self {
@@ -59,7 +45,126 @@ impl App {
 		})
 	}
 
-	pub fn push_presenter(&mut self, presenter: Presenter) {
+	pub fn push_presenter(&mut self, presenter: Box<dyn PresenterObject>) {
 		self.presenters.push(presenter);
 	}
+
+	pub(crate) fn make_surface(&mut self, w: u32, h: u32, pf: PixelFormat) -> Rl<Surface> {
+		Surface::new_registered_made(&mut self.god, &self.compositor, w, h, pf)
+	}
+
+	pub fn work<F, S>(&mut self, state: &mut S, mut render_fun: F) -> Result<bool, WaylandError>
+	where
+		F: FnMut(&mut S, Snapshot),
+	{
+		for (id, presenter) in &mut self.presenters.inner {
+			// only tlw for now
+			let window = match presenter.any().downcast_mut::<TopLevelWindow>() {
+				Some(w) => w,
+				None => continue,
+			};
+			let cb = &mut window.frame_cb;
+			let frame = &mut window.frame;
+
+			self.god.handle_events();
+
+			// check if user wants to close window - the cb might not be a good idea
+			if window.xdg_toplevel.borrow().close_requested && (window.close_cb)() {
+				// make a trait object with a set_finished() method
+				window.finished = true;
+				continue;
+			};
+			if window.xdg_surface.borrow().is_configured {
+				let ready = match &cb.clone() {
+					Some(cb) => cb.borrow().done,
+					None => true,
+				};
+
+				let mut surf = window.surface.borrow_mut();
+				let surf_w = surf.w;
+				let surf_h = surf.h;
+				if surf.attached_buf.is_none() {
+					dbug!("no buf");
+					drop(surf);
+					let buf = window.backend.make_buffer(
+						&mut self.god,
+						surf_w,
+						surf_h,
+						&window.surface,
+					)?;
+					// let acts = buf.borrow_mut().get_resize_actions(id, (surf_w, surf_h))?;
+					// match &window.backend {
+					// 	BufferBackend::SharedMemory(weak) => {
+					// 		let shmp = weak.upgrade().to_wl_err()?;
+					// 		let shmp = shmp.borrow();
+					// 		for (act, _, _) in acts {
+					// 			if let EventAction::Request(req) = act {
+					// 				self.god.borrow_mut().wlmm.queue_request(req, shmp.kind());
+					// 			}
+					// 		}
+					// 	}
+					// 	BufferBackend::Dma(weak) => {
+					// 		let dmabuf = weak.upgrade().to_wl_err()?;
+					// 		let dmabuf = dmabuf.borrow();
+					// 		for (act, _, _) in acts {
+					// 			if let EventAction::Request(req) = act {
+					// 				self.god.borrow_mut().wlmm.queue_request(req, dmabuf.kind());
+					// 			}
+					// 		}
+					// 	}
+					// }
+					let mut surf = window.surface.borrow_mut();
+					surf.attach_buffer_obj(&mut self.god, buf)?;
+					surf.commit(&mut self.god);
+					drop(surf);
+					self.god.handle_events()?;
+					continue;
+				} else {
+					dbug!(" hasbu ffer");
+				}
+
+				if ready {
+					dbug!("is ready");
+					let new_cb = surf.frame(&mut self.god)?;
+					*cb = Some(new_cb);
+					*frame = frame.wrapping_add(1);
+
+					unsafe {
+						let slice = &mut *surf.get_buffer_slice()?;
+						let buf = surf.attached_buf.clone().ok_or("no buffer");
+
+						let ss = Snapshot {
+							buf: slice,
+							w: surf_w,
+							h: surf_h,
+							pf: surf.pf,
+							frame: *frame,
+							presenter_id: *id,
+						};
+
+						render_fun(state, ss);
+					}
+					surf.attach_buffer(&mut self.god)?;
+					surf.repaint(&mut self.god)?;
+					surf.commit(&mut self.god);
+				}
+			} else {
+				dbug!("not configured");
+			}
+		}
+		self.presenters.inner.retain(|_, pres| !pres.is_finished());
+		if self.presenters.inner.iter().all(|(_, p)| p.is_finished()) {
+			self.finished = true;
+		};
+		Ok(self.finished)
+	}
+}
+
+pub struct Snapshot<'a> {
+	pub buf: &'a mut [u8],
+	pub w: u32,
+	pub h: u32,
+	pub pf: PixelFormat,
+	pub frame: usize,
+	pub presenter_id: usize,
 }

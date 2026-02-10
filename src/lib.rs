@@ -1,6 +1,7 @@
 #![feature(unix_socket_ancillary_data)]
 #![feature(variant_count)]
 #![feature(deque_extend_front)]
+#![feature(random)]
 
 use std::{
 	cell::RefCell,

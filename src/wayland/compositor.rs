@@ -41,7 +41,7 @@ impl Compositor {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(0),
-			opname: Some("create_surface"),
+			opname: "create_surface",
 			args: vec![WireArgument::UnInt(id.raw())],
 		}
 	}

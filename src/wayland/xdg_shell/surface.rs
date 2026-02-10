@@ -39,7 +39,7 @@ impl XdgSurface {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(1),
-			opname: Some("get_toplevel"),
+			opname: "get_toplevel",
 			args: vec![WireArgument::NewId(xdg_toplevel_id)],
 		}
 	}
@@ -53,7 +53,7 @@ impl XdgSurface {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(4),
-			opname: Some("ack_configure"),
+			opname: "ack_configure",
 			args: vec![WireArgument::UnInt(serial)],
 		}
 	}
@@ -63,7 +63,7 @@ impl XdgSurface {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(0),
-			opname: Some("destroy"),
+			opname: "destroy",
 			args: vec![],
 		}
 	}
@@ -91,7 +91,7 @@ impl WaylandObject for XdgSurface {
 
 				qpush!(pending, self.wl_ack_configure(serial));
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind_str())),
+			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind())),
 		}
 		Ok(pending)
 	}

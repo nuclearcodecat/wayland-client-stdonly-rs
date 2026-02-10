@@ -33,7 +33,7 @@ impl Display {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(1),
-			opname: Some("get_registry"),
+			opname: "get_registry",
 			args: vec![WireArgument::NewId(id)],
 		}
 	}
@@ -55,7 +55,7 @@ impl Display {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(0),
-			opname: Some("sync"),
+			opname: "sync",
 			args: vec![WireArgument::NewId(id)],
 		}
 	}
@@ -89,7 +89,7 @@ impl WaylandObject for Display {
 				pending.push(Action::IdDeletion(Id(deleted_id)));
 			}
 			inv => {
-				return Err(WaylandError::InvalidOpCode(OpCode(inv), self.kind_str()));
+				return Err(WaylandError::InvalidOpCode(OpCode(inv), self.kind()));
 			}
 		}
 		Ok(pending)

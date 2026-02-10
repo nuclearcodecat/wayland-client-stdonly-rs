@@ -33,7 +33,7 @@ impl XdgWmBase {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(0),
-			opname: Some("destroy"),
+			opname: "destroy",
 			args: vec![],
 		}
 	}
@@ -47,7 +47,7 @@ impl XdgWmBase {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(3),
-			opname: Some("pong"),
+			opname: "pong",
 			args: vec![WireArgument::UnInt(serial)],
 		}
 	}
@@ -57,7 +57,7 @@ impl XdgWmBase {
 			sender_id: self.id,
 			kind: self.kind(),
 			opcode: OpCode(2),
-			opname: Some("get_xdg_surface"),
+			opname: "get_xdg_surface",
 			args: vec![WireArgument::NewId(xdg_surface_id), WireArgument::Obj(wl_surface_id)],
 		}
 	}
@@ -81,7 +81,7 @@ impl WaylandObject for XdgWmBase {
 				let serial = u32::from_wire(payload)?;
 				qpush!(pending, self.wl_pong(serial));
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind_str())),
+			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind())),
 		}
 		Ok(pending)
 	}

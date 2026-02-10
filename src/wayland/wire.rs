@@ -21,7 +21,7 @@ pub(crate) struct WireRequest {
 	pub(crate) sender_id: Id,
 	pub(crate) kind: WaylandObjectKind,
 	pub(crate) opcode: OpCode,
-	pub(crate) opname: Option<&'static str>,
+	pub(crate) opname: &'static str,
 	pub(crate) args: Vec<WireArgument>,
 }
 
@@ -78,39 +78,13 @@ impl Drop for MessageManager {
 	}
 }
 
-struct WireDebugMessage<'a> {
-	opcode: (Option<&'static str>, OpCode),
-	object: (Option<WaylandObjectKind>, Option<Id>),
-	args: &'a Vec<WireArgument>,
-}
-
-impl Display for WireDebugMessage<'_> {
+impl Display for WireRequest {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let part1 = if let Some(opcode_str) = &self.opcode.0 {
-			format!("{opcode_str} ({}°) ", self.opcode.1)
-		} else {
-			format!(": opcode {}, ", self.opcode.1)
-		};
-		let part2 = if let Some(kind) = &self.object.0 {
-			let mut og = format!("for object {:?}", kind);
-			if let Some(id) = &self.object.1 {
-				og = og + &format!(" ({id})");
-			};
-			og
-		} else {
-			String::from("")
-		};
-		write!(f, "sending request{}{} with args {:?}", part1, part2, self.args)
-	}
-}
-
-impl WireRequest {
-	fn make_debug(&self, id: Option<Id>, kind: Option<WaylandObjectKind>) -> WireDebugMessage<'_> {
-		WireDebugMessage {
-			opcode: (self.opname, self.opcode),
-			object: (kind, id),
-			args: &self.args,
-		}
+		write!(
+			f,
+			"sending {} ({}°) for object {:?} ({}) with args {:?}",
+			self.opname, self.opcode, self.kind, self.sender_id, self.args
+		)
 	}
 }
 
@@ -150,14 +124,8 @@ impl MessageManager {
 		Ok(self.sock.shutdown(std::net::Shutdown::Both)?)
 	}
 
-	pub(crate) fn send_request_logged(
-		&self,
-		msg: &mut WireRequest,
-		// id: Option<Id>,
-		// kind: Option<WaylandObjectKind>,
-	) -> Result<(), WaylandError> {
-		// let dbugmsg = msg.make_debug(id, kind);
-		// wlog!(DebugLevel::Trivial, "wlmm", format!("{dbugmsg}"), GREEN, NONE);
+	pub(crate) fn send_request_logged(&self, msg: &mut WireRequest) -> Result<(), WaylandError> {
+		wlog!(DebugLevel::Trivial, "wlmm", format!("{msg}"), GREEN, NONE);
 		self.send_request(msg)
 	}
 

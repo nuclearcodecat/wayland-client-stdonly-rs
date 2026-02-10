@@ -72,7 +72,7 @@ pub enum WaylandError {
 	EmptyFromWirePayload,
 	RecvLenBad,
 	NoWaylandDisplay,
-	InvalidOpCode(OpCode, &'static str),
+	InvalidOpCode(OpCode, WaylandObjectKind),
 	ObjectNonExistent,
 	IdMapRemovalFail,
 	NotInRegistry(WaylandObjectKind),
@@ -80,6 +80,9 @@ pub enum WaylandError {
 	Io(std::io::Error),
 	Env(std::env::VarError),
 	Utf8(std::string::FromUtf8Error),
+	Nul(std::ffi::NulError),
+	RequiredValueNone(&'static str),
+	InvalidPixelFormat,
 }
 
 impl From<std::io::Error> for WaylandError {
@@ -100,6 +103,12 @@ impl From<std::string::FromUtf8Error> for WaylandError {
 	}
 }
 
+impl From<std::ffi::NulError> for WaylandError {
+	fn from(er: std::ffi::NulError) -> Self {
+		WaylandError::Nul(er)
+	}
+}
+
 impl Error for WaylandError {}
 
 impl Display for WaylandError {
@@ -113,27 +122,20 @@ impl Display for WaylandError {
 			WaylandError::InvalidOpCode(code, name) => {
 				write!(f, "invalid opcode {code} encountered for {name}")
 			}
-			WaylandError::ObjectNonExistent => {
-				write!(f, "object does not exist in the map")
-			}
-			WaylandError::IdMapRemovalFail => {
-				write!(f, "failed to remove object from idmap")
-			}
+			WaylandError::ObjectNonExistent => write!(f, "object does not exist in the map"),
+			WaylandError::IdMapRemovalFail => write!(f, "failed to remove object from idmap"),
 			WaylandError::NotInRegistry(kind) => {
 				write!(f, "object of kind {kind} not found in registry")
 			}
 			WaylandError::InvalidEnumVariant(kind) => {
 				write!(f, "an invalid {kind} enum variant has been received")
 			}
-			WaylandError::Io(er) => {
-				write!(f, "std::io::Error received: {:?}", er)
-			}
-			WaylandError::Env(er) => {
-				write!(f, "std::env::VarError received: {:?}", er)
-			}
-			WaylandError::Utf8(er) => {
-				write!(f, "std::string::FromUtf8Error received: {:?}", er)
-			}
+			WaylandError::Io(er) => write!(f, "std::io::Error received: {:?}", er),
+			WaylandError::Env(er) => write!(f, "std::env::VarError received: {:?}", er),
+			WaylandError::Utf8(er) => write!(f, "std::string::FromUtf8Error received: {:?}", er),
+			WaylandError::Nul(er) => write!(f, "std::ffi::NulError received: {:?}", er),
+			WaylandError::RequiredValueNone(er) => write!(f, "expected a Some value: {er}"),
+			WaylandError::InvalidPixelFormat => write!(f, "invalid pixel format encountered"),
 		}
 	}
 }
@@ -272,16 +274,42 @@ pub(crate) trait Boxed: Sized {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub enum PixelFormat {
+	#[default]
 	Argb888,
 	Xrgb888,
 }
 
-impl Default for PixelFormat {
-	fn default() -> Self {
-		Self::Argb888
+impl PixelFormat {
+	pub(crate) fn from_u32(processee: u32) -> Result<PixelFormat, WaylandError> {
+		match processee {
+			0 => Ok(PixelFormat::Argb888),
+			1 => Ok(PixelFormat::Xrgb888),
+			_ => Err(WaylandError::InvalidPixelFormat),
+		}
 	}
+
+	pub const fn width(&self) -> u32 {
+		match self {
+			Self::Argb888 => 4,
+			Self::Xrgb888 => 4,
+		}
+	}
+
+	// pub const fn to_fourcc(self) -> u32 {
+	// 	match self {
+	// 		PixelFormat::Argb888 => fourcc_code(b'X', b'R', b'2', b'4'),
+	// 		PixelFormat::Xrgb888 => fourcc_code(b'X', b'R', b'2', b'4'),
+	// 	}
+	// }
+
+	// pub const fn bpp(&self) -> u32 {
+	// 	match self {
+	// 		PixelFormat::Argb888 => 32,
+	// 		PixelFormat::Xrgb888 => 32,
+	// 	}
+	// }
 }
 
 #[derive(Default)]
@@ -305,13 +333,13 @@ impl God {
 		while let Some(action) = self.wlmm.q.pop_front() {
 			match action {
 				Action::RequestRequest(ev) => {
-					wlog!(
+					conseq.push_back(Consequence::Trace(
 						DebugLevel::Trivial,
 						"event handler",
 						format!("going to handle {:?} ({})", ev.kind, ev.sender_id),
 						CYAN,
-						NONE
-					);
+						NONE,
+					));
 					conseq.push_back(Consequence::Request(ev));
 				}
 				Action::Sync(id) => {
@@ -328,10 +356,18 @@ impl God {
 					if let Some(sid) = self.wlim.current_sync_id
 						&& sid == id
 					{
+						wlog!(
+							DebugLevel::Trivial,
+							"event handler",
+							"sync callback done",
+							CYAN,
+							NONE
+						);
 						self.wlim.current_sync_id = None;
 						break;
 					}
 				}
+				// this needs structs
 				Action::Error(id, id_, opcode, x) => {
 					conseq.push_back(Consequence::Trace(
 						DebugLevel::Error,
