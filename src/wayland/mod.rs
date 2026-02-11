@@ -384,6 +384,11 @@ impl God {
 					let obj = self.wlim.find_obj_by_id(raw.recv_id)?;
 					let actions_new = obj.borrow_mut().handle(&raw.payload, raw.opcode, &fds)?;
 					self.wlmm.q.extend_front(actions_new);
+					self.wlmm.q.push_front(Action::Trace(
+						DebugLevel::Verbose,
+						obj.borrow().kind_str(),
+						format!("handling self (id {})", raw.recv_id.raw()),
+					));
 				}
 				Action::IdDeletion(id) => {
 					conseq.push_back(Consequence::IdDeletion(id));

@@ -1,9 +1,9 @@
 use std::rc::Rc;
 
 use crate::{
-	Rl, Wl, rl,
+	DebugLevel, Rl, Wl, handle_log, qpush, rl,
 	wayland::{
-		God, Id, OpCode, WaylandError, WaylandObject, WaylandObjectKind, surface::Surface,
+		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind, surface::Surface,
 		wire::Action,
 	},
 };
@@ -65,10 +65,19 @@ impl WaylandObject for Buffer {
 	fn handle(
 		&mut self,
 		_payload: &[u8],
-		_opcode: OpCode,
+		opcode: OpCode,
 		_fds: &[std::os::unix::prelude::OwnedFd],
 	) -> Result<Vec<Action>, WaylandError> {
-		todo!()
+		let mut pending = vec![];
+		match opcode.raw() {
+			// release
+			0 => {
+				self.in_use = false;
+				handle_log!(pending, self, DebugLevel::Verbose, String::from("released"));
+			}
+			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind())),
+		}
+		Ok(pending)
 	}
 
 	fn kind(&self) -> WaylandObjectKind {

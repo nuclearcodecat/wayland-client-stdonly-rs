@@ -2,7 +2,7 @@ use crate::{
 	Rl,
 	abstraction::{
 		app::App,
-		presenter::{Presenter, PresenterObject, TopLevelWindow},
+		presenter::{PresenterObject, TopLevelWindow},
 	},
 	wait_for_sync,
 	wayland::{
@@ -99,6 +99,7 @@ impl<'a, B: BufferBackend + 'static> TopLevelWindowWizard<'a, B> {
 		let backend = Box::new(self.backend.ok_or(WaylandError::RequiredValueNone(
 			"attach a BufferBackend trait object with ::with_backend()",
 		))?);
+		surface.borrow().commit(god);
 		wait_for_sync!(&self.parent.display, &mut god);
 		let tlw = TopLevelWindow {
 			xdg_wm_base,
