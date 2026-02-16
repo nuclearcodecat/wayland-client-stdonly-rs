@@ -3,10 +3,11 @@ use std::{
 	error::Error,
 	fmt::Display,
 	os::fd::OwnedFd,
+	rc::Rc,
 };
 
 use crate::{
-	CYAN, DebugLevel, NONE, RED, Rl, WHITE, YELLOW,
+	CYAN, DebugLevel, NONE, RED, Rl, WHITE, YELLOW, dbug,
 	wayland::wire::{Action, Consequence, MessageManager},
 	wlog,
 };
@@ -15,6 +16,7 @@ pub(crate) mod buffer;
 pub(crate) mod callback;
 pub(crate) mod compositor;
 pub(crate) mod display;
+pub(crate) mod dmabuf;
 pub(crate) mod registry;
 pub mod shm;
 pub(crate) mod surface;
@@ -28,13 +30,13 @@ pub(crate) struct Id(pub(crate) u32);
 
 impl Display for Id {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.0)
+		write!(f, "{}", self.raw())
 	}
 }
 
 impl Display for OpCode {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.0)
+		write!(f, "{}", self.raw())
 	}
 }
 
@@ -81,8 +83,21 @@ pub enum WaylandError {
 	Env(std::env::VarError),
 	Utf8(std::string::FromUtf8Error),
 	Nul(std::ffi::NulError),
-	RequiredValueNone(&'static str),
+	ExpectedSomeValue(&'static str),
 	InvalidPixelFormat,
+}
+
+pub trait ExpectRc<T> {
+	fn to_wl_err(self) -> Result<Rc<T>, WaylandError>;
+}
+
+impl<T> ExpectRc<T> for Option<Rc<T>> {
+	fn to_wl_err(self) -> Result<Rc<T>, WaylandError> {
+		match self {
+			Some(x) => Ok(x),
+			None => Err(WaylandError::ExpectedSomeValue("Weak was empty")),
+		}
+	}
 }
 
 impl From<std::io::Error> for WaylandError {
@@ -134,13 +149,11 @@ impl Display for WaylandError {
 			WaylandError::Env(er) => write!(f, "std::env::VarError received: {:?}", er),
 			WaylandError::Utf8(er) => write!(f, "std::string::FromUtf8Error received: {:?}", er),
 			WaylandError::Nul(er) => write!(f, "std::ffi::NulError received: {:?}", er),
-			WaylandError::RequiredValueNone(er) => write!(f, "expected a Some value: {er}"),
+			WaylandError::ExpectedSomeValue(er) => write!(f, "expected a Some value: {er}"),
 			WaylandError::InvalidPixelFormat => write!(f, "invalid pixel format encountered"),
 		}
 	}
 }
-
-impl Boxed for WaylandError {}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum WaylandObjectKind {
@@ -273,6 +286,8 @@ pub(crate) trait Boxed: Sized {
 	}
 }
 
+impl<T> Boxed for T {}
+
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub enum PixelFormat {
@@ -336,7 +351,7 @@ impl God {
 					conseq.push_back(Consequence::Trace(
 						DebugLevel::Trivial,
 						"event handler",
-						format!("going to handle {:?} ({})", ev.kind, ev.sender_id),
+						format!("going to handle {} ({})", ev.kind, ev.sender_id),
 						CYAN,
 						NONE,
 					));
@@ -367,7 +382,6 @@ impl God {
 						break;
 					}
 				}
-				// this needs structs
 				Action::Error(id, id_, opcode, x) => {
 					conseq.push_back(Consequence::Trace(
 						DebugLevel::Error,
@@ -393,6 +407,26 @@ impl God {
 				Action::IdDeletion(id) => {
 					conseq.push_back(Consequence::IdDeletion(id));
 				}
+				Action::Resize(w, h, surf) => {
+					dbug!(format!("RESIZING {w} {h}"));
+					let surface = surf.borrow();
+					if let Some(rcbuf) = &surface.attached_buf {
+						let backend = {
+							let buf = rcbuf.borrow();
+							buf.backend.clone()
+						};
+						let mut backend = backend.borrow_mut();
+						backend.resize(&mut self.wlmm, &mut self.wlim, rcbuf, w, h)?
+					} else {
+						conseq.push_back(Consequence::Trace(
+							DebugLevel::Important,
+							"event handler",
+							String::from("buffer object not attached to resized surface"),
+							CYAN,
+							NONE,
+						));
+					}
+				}
 			}
 		}
 		while let Some(c) = conseq.pop_front() {
@@ -413,43 +447,7 @@ impl God {
 				}
 				Consequence::Trace(dl, kind, msg, bg, fg) => {
 					wlog!(dl, kind, msg, bg, fg)
-				} // Consequence::Resize(w, h, xdgs) => {
-				  // 	let xdgs = xdgs.upgrade().to_wl_err()?;
-				  // 	let xdgs = xdgs.borrow_mut();
-				  // 	let att_buf =
-				  // 		xdgs.wl_surface.upgrade().to_wl_err()?.borrow().attached_buf.clone();
-
-				  // 	if let Some(buf_) = att_buf {
-				  // 		let mut buf = buf_.borrow_mut();
-				  // 		wlog!(
-				  // 			DebugLevel::Important,
-				  // 			"event handler",
-				  // 			format!("calling resize, w: {}, h: {}", w, h),
-				  // 			CYAN,
-				  // 			NONE
-				  // 		);
-				  // 		let new_buf_id =
-				  // 			self.wlim.new_id_registered(WaylandObjectKind::Buffer, buf_.clone());
-				  // 		let acts = buf.get_resize_actions(new_buf_id, (w, h))?;
-				  // 		conseq.extend_front(acts);
-				  // 	} else {
-				  // 		wlog!(
-				  // 			DebugLevel::Important,
-				  // 			"event handler",
-				  // 			"buf not present at resize",
-				  // 			CYAN,
-				  // 			YELLOW
-				  // 		);
-				  // 	}
-
-				  // 	let surf = xdgs.wl_surface.upgrade().to_wl_err()?;
-				  // 	let mut surf = surf.borrow_mut();
-				  // 	surf.w = w;
-				  // 	surf.h = h;
-				  // }
-				  // Consequence::DropObject(id) => {
-				  // 	self.wlim.idmap.remove(&id);
-				  // }
+				}
 			};
 		}
 		Ok(())

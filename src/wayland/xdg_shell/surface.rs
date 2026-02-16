@@ -4,6 +4,7 @@ use crate::{
 	DebugLevel, Rl, handle_log, qpush, rl,
 	wayland::{
 		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		surface::Surface,
 		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 		xdg_shell::wm_base::XdgWmBase,
 	},
@@ -12,26 +13,28 @@ use crate::{
 pub(crate) struct XdgSurface {
 	pub(crate) id: Id,
 	pub(crate) is_configured: bool,
+	pub(crate) parent: Rl<Surface>,
 }
 
 impl XdgSurface {
-	pub(crate) fn new(id: Id) -> Rl<Self> {
+	pub(crate) fn new(id: Id, parent: Rl<Surface>) -> Rl<Self> {
 		rl!(Self {
 			id,
 			is_configured: false,
+			parent,
 		})
 	}
 
 	pub(crate) fn new_registered(
 		god: &mut God,
 		wm_base: &Rl<XdgWmBase>,
-		surface_id: Id,
+		surface: &Rl<Surface>,
 	) -> Rl<Self> {
-		let surf = Self::new(Id(0));
-		let id = god.wlim.new_id_registered(surf.clone());
-		surf.borrow_mut().id = id;
-		wm_base.borrow().get_xdg_surface(god, surface_id, id);
-		surf
+		let new = Self::new(Id(0), surface.clone());
+		let id = god.wlim.new_id_registered(new.clone());
+		new.borrow_mut().id = id;
+		wm_base.borrow().get_xdg_surface(god, surface.borrow().id, id);
+		new
 	}
 
 	fn wl_get_toplevel(&self, xdg_toplevel_id: Id) -> WireRequest {

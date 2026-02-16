@@ -9,9 +9,9 @@ use crate::{
 		presenter::{Presenter, PresenterMap, PresenterObject, TopLevelWindow},
 		wizard::TopLevelWindowWizard,
 	},
-	dbug, init_logger, wait_for_sync,
+	dbug, init_logger, rl, wait_for_sync,
 	wayland::{
-		God, IdentManager, PixelFormat, WaylandError, buffer::BufferBackend,
+		Boxed, God, IdentManager, PixelFormat, WaylandError, buffer::BufferBackend,
 		compositor::Compositor, display::Display, registry::Registry, shm::ShmBackend,
 		surface::Surface, wire::MessageManager,
 	},
@@ -86,45 +86,22 @@ impl App {
 				if surf.attached_buf.is_none() {
 					dbug!("no buf");
 					drop(surf);
-					let buf = window.backend.make_buffer(
+					let buf = window.backend.borrow_mut().as_mut().make_buffer(
 						&mut self.god,
 						surf_w,
 						surf_h,
 						&window.surface,
+						&window.backend,
 					)?;
-					// let acts = buf.borrow_mut().get_resize_actions(id, (surf_w, surf_h))?;
-					// match &window.backend {
-					// 	BufferBackend::SharedMemory(weak) => {
-					// 		let shmp = weak.upgrade().to_wl_err()?;
-					// 		let shmp = shmp.borrow();
-					// 		for (act, _, _) in acts {
-					// 			if let EventAction::Request(req) = act {
-					// 				self.god.borrow_mut().wlmm.queue_request(req, shmp.kind());
-					// 			}
-					// 		}
-					// 	}
-					// 	BufferBackend::Dma(weak) => {
-					// 		let dmabuf = weak.upgrade().to_wl_err()?;
-					// 		let dmabuf = dmabuf.borrow();
-					// 		for (act, _, _) in acts {
-					// 			if let EventAction::Request(req) = act {
-					// 				self.god.borrow_mut().wlmm.queue_request(req, dmabuf.kind());
-					// 			}
-					// 		}
-					// 	}
-					// }
 					let mut surf = window.surface.borrow_mut();
 					surf.attach_buffer_obj(&mut self.god, buf)?;
 					surf.commit(&mut self.god);
 					drop(surf);
 					self.god.handle_events()?;
 					continue;
-				} else {
-					dbug!(" hasbu ffer");
 				}
 
 				if ready {
-					dbug!("is ready");
 					let new_cb = surf.frame(&mut self.god)?;
 					*cb = Some(new_cb);
 					*frame = frame.wrapping_add(1);
@@ -148,8 +125,6 @@ impl App {
 					surf.repaint(&mut self.god)?;
 					surf.commit(&mut self.god);
 				}
-			} else {
-				dbug!("not configured");
 			}
 		}
 		self.presenters.inner.retain(|_, pres| !pres.is_finished());

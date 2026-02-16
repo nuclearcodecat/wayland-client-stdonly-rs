@@ -8,25 +8,24 @@ use crate::{
 	wayland::{
 		PixelFormat, WaylandError,
 		buffer::BufferBackend,
-		shm::ShmBackend,
 		surface::Surface,
 		xdg_shell::{surface::XdgSurface, toplevel::XdgTopLevel, wm_base::XdgWmBase},
 	},
 };
 
-pub struct TopLevelWindowWizard<'a, B: BufferBackend = ShmBackend> {
+pub struct TopLevelWindowWizard<'a> {
 	pub(crate) app_id: Option<String>,
 	pub(crate) title: Option<String>,
 	pub(crate) width: Option<u32>,
 	pub(crate) height: Option<u32>,
 	pub(crate) parent: &'a mut App,
 	pub(crate) close_cb: Option<Box<dyn FnMut() -> bool>>,
-	pub(crate) backend: Option<B>,
+	pub(crate) backend: Option<Rl<Box<dyn BufferBackend>>>,
 	pub(crate) pf: Option<PixelFormat>,
 	pub(crate) xdg_wm_base: Option<Rl<XdgWmBase>>,
 }
 
-impl<'a, B: BufferBackend + 'static> TopLevelWindowWizard<'a, B> {
+impl<'a> TopLevelWindowWizard<'a> {
 	pub fn new(parent: &'a mut App) -> Self {
 		Self {
 			app_id: None,
@@ -79,8 +78,8 @@ impl<'a, B: BufferBackend + 'static> TopLevelWindowWizard<'a, B> {
 		self
 	}
 
-	pub fn with_backend(mut self, backend: B) -> Self {
-		self.backend = Some(backend);
+	pub fn with_backend(mut self, backend: &Rl<Box<dyn BufferBackend>>) -> Self {
+		self.backend = Some(backend.clone());
 		self
 	}
 
@@ -94,11 +93,11 @@ impl<'a, B: BufferBackend + 'static> TopLevelWindowWizard<'a, B> {
 		let surface = Surface::new_registered_made(god, compositor, w, h, pf);
 		let xdg_wm_base =
 			self.xdg_wm_base.unwrap_or(XdgWmBase::new_registered_bound(registry, god)?);
-		let xdg_surface = XdgSurface::new_registered(god, &xdg_wm_base, surface.borrow().id);
+		let xdg_surface = XdgSurface::new_registered(god, &xdg_wm_base, &surface);
 		let xdg_toplevel = XdgTopLevel::new_registered_gotten(god, &xdg_surface);
-		let backend = Box::new(self.backend.ok_or(WaylandError::RequiredValueNone(
+		let backend = self.backend.ok_or(WaylandError::ExpectedSomeValue(
 			"attach a BufferBackend trait object with ::with_backend()",
-		))?);
+		))?;
 		surface.borrow().commit(god);
 		wait_for_sync!(&self.parent.display, &mut god);
 		let tlw = TopLevelWindow {

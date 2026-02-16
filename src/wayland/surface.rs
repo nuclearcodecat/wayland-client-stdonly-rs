@@ -72,7 +72,7 @@ impl Surface {
 		let buf = self
 			.attached_buf
 			.clone()
-			.ok_or(WaylandError::RequiredValueNone("no buffer attached to surface"))?;
+			.ok_or(WaylandError::ExpectedSomeValue("no buffer attached to surface"))?;
 		god.wlmm.queue_request(self.wl_attach(buf.borrow().id));
 		Ok(())
 	}
@@ -112,7 +112,7 @@ impl Surface {
 			let mut buf = buf.borrow_mut();
 			buf.get_slice()
 		} else {
-			Err(WaylandError::RequiredValueNone("no buffer attached to surface"))
+			Err(WaylandError::ExpectedSomeValue("no buffer attached to surface"))
 		}
 	}
 
@@ -140,7 +140,7 @@ impl Surface {
 			self.damage_buffer(god, (0, 0), (self.w as i32, self.h as i32));
 			Ok(())
 		} else {
-			Err(WaylandError::RequiredValueNone("no buffer attached to surface"))
+			Err(WaylandError::ExpectedSomeValue("no buffer attached to surface"))
 		}
 	}
 }

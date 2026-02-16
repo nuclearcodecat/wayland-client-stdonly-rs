@@ -12,8 +12,8 @@ use std::{
 };
 
 use crate::{
-	CYAN, DebugLevel, GREEN, NONE, RED,
-	wayland::{Boxed, Id, OpCode, Raw, WaylandError, WaylandObjectKind},
+	CYAN, DebugLevel, GREEN, NONE, RED, Rl,
+	wayland::{Boxed, Id, OpCode, Raw, WaylandError, WaylandObjectKind, surface::Surface},
 	wlog,
 };
 
@@ -54,6 +54,7 @@ pub(crate) enum Action {
 	Error(Id, Id, OpCode, String),
 	Trace(DebugLevel, &'static str, String),
 	IdDeletion(Id),
+	Resize(u32, u32, Rl<Surface>),
 }
 
 pub(crate) enum Consequence {
@@ -82,7 +83,7 @@ impl Display for WireRequest {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(
 			f,
-			"sending {} ({}°) for object {:?} ({}) with args {:?}",
+			"sending {} ({}°) for object {} ({}) with args {:?}",
 			self.opname, self.opcode, self.kind, self.sender_id, self.args
 		)
 	}
@@ -354,7 +355,6 @@ pub(crate) struct RecvError {
 	pub(crate) msg: String,
 }
 
-impl Boxed for RecvError {}
 impl Error for RecvError {}
 
 impl Display for RecvError {

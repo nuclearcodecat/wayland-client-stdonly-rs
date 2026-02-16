@@ -14,6 +14,7 @@ pub struct XdgTopLevel {
 	pub(crate) title: Option<String>,
 	pub(crate) appid: Option<String>,
 	pub(crate) close_requested: bool,
+	pub(crate) parent: Rl<XdgSurface>,
 }
 
 impl XdgTopLevel {
@@ -39,24 +40,25 @@ impl XdgTopLevel {
 	// 	Ok(xdgtl)
 	// }
 
-	pub(crate) fn new(id: Id) -> Rl<Self> {
+	pub(crate) fn new(id: Id, parent: Rl<XdgSurface>) -> Rl<Self> {
 		rl!(Self {
 			id,
 			title: None,
 			appid: None,
 			close_requested: false,
+			parent,
 		})
 	}
 
-	pub(crate) fn new_registered(god: &mut God) -> Rl<Self> {
-		let tl = Self::new(Id(0));
+	pub(crate) fn new_registered(god: &mut God, parent: &Rl<XdgSurface>) -> Rl<Self> {
+		let tl = Self::new(Id(0), parent.clone());
 		let id = god.wlim.new_id_registered(tl.clone());
 		tl.borrow_mut().id = id;
 		tl
 	}
 
 	pub(crate) fn new_registered_gotten(god: &mut God, xdg_surface: &Rl<XdgSurface>) -> Rl<Self> {
-		let tl = Self::new_registered(god);
+		let tl = Self::new_registered(god, xdg_surface);
 		xdg_surface.borrow().get_toplevel(god, tl.borrow().id);
 		tl
 	}
@@ -132,8 +134,8 @@ impl WaylandObject for XdgTopLevel {
 		match opcode.raw() {
 			// configure
 			0 => {
-				let w = i32::from_wire(payload)?;
-				let h = i32::from_wire(&payload[4..])?;
+				let w = i32::from_wire(payload)? as u32;
+				let h = i32::from_wire(&payload[4..])? as u32;
 				let states: Vec<XdgTopLevelStates> = Vec::from_wire(&payload[8..])?
 					.iter()
 					.map(|en| {
@@ -151,9 +153,9 @@ impl WaylandObject for XdgTopLevel {
 					DebugLevel::Important,
 					format!("configure // w: {w}, h: {h}, states: {states:?}")
 				);
-				// if w != 0 && h != 0 {
-				// 	pending.push(EventAction::Resize(w, h, self.parent.clone()));
-				// }
+				if w != 0 && h != 0 {
+					pending.push(Action::Resize(w, h, self.parent.borrow().parent.clone()));
+				}
 			}
 			// close
 			1 => {

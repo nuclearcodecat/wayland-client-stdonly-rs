@@ -15,11 +15,12 @@ use crate::{
 	abstraction::app::App,
 	dbug, handle_log, qpush, rl,
 	wayland::{
-		God, Id, OpCode, PixelFormat, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		Boxed, ExpectRc, God, Id, IdentManager, OpCode, PixelFormat, Raw, WaylandError,
+		WaylandObject, WaylandObjectKind,
 		buffer::{Buffer, BufferBackend},
 		registry::Registry,
 		surface::Surface,
-		wire::{Action, FromWirePayload, WireArgument, WireRequest},
+		wire::{Action, FromWirePayload, MessageManager, WireArgument, WireRequest},
 	},
 	wlog,
 };
@@ -36,71 +37,61 @@ impl BufferBackend for ShmBackend {
 		w: u32,
 		h: u32,
 		surface: &Rl<Surface>,
+		backend: &Rl<Box<dyn BufferBackend>>,
 	) -> Result<Rl<Buffer>, WaylandError> {
 		let mut pool = self.pool.borrow_mut();
-		let buffer = pool.make_buffer(god, (0, w, h), surface)?;
+		let buffer = pool.make_buffer(god, (0, w, h), surface, backend)?;
 		Ok(buffer)
 	}
 
-	// fn resize(&mut self, new_buf_id: Id, (w, h): (i32, i32)) -> Result<Vec<()>, WaylandError> {
-	// 	wlog!(
-	// 		DebugLevel::Important,
-	// 		self.kind_as_str(),
-	// 		format!("RESIZE w: {} h: {}", self.width, self.height),
-	// 		WHITE,
-	// 		NONE
-	// 	);
+	fn resize(
+		&mut self,
+		wlmm: &mut MessageManager,
+		wlim: &mut IdentManager,
+		buf: &Rl<Buffer>,
+		w: u32,
+		h: u32,
+	) -> Result<(), WaylandError> {
+		let id = wlim.new_id_registered(buf.clone());
+		let mut buffer = buf.borrow_mut();
+		wlmm.queue_request(buffer.wl_destroy());
 
-	// 	pending.push((EventAction::Request(self.wl_destroy()), WaylandObjectKind::Buffer, self.id));
+		buffer.w = w;
+		buffer.h = h;
 
-	// 	match &self.backend {
-	// 		BufferBackend::SharedMemory(weak) => {
-	// 			let shmp = weak.upgrade().to_wl_err()?;
-	// 			let mut shmp = shmp.borrow_mut();
-	// 			let format = self.master.upgrade().to_wl_err()?.borrow().pf;
-	// 			let shm_actions = shmp.get_resize_actions_if_larger(w * h * format.width())?;
-	// 			pending.append(
-	// 				&mut shm_actions
-	// 					.into_iter()
-	// 					.map(|x| (x, WaylandObjectKind::SharedMemoryPool, shmp.id))
-	// 					.collect(),
-	// 			);
+		let mut pool = self.pool.borrow_mut();
+		let format = buffer.master.upgrade().to_wl_err()?.borrow().pf;
+		let shm_actions = pool.get_resize_actions_if_larger((w * h * format.width()) as i32)?;
+		buffer.slice = pool.slice;
+		wlmm.q.extend(shm_actions);
 
-	// 			self.id = new_buf_id;
+		buffer.id = id;
 
-	// 			pending.push((
-	// 				EventAction::Request(shmp.wl_create_buffer(
-	// 					self.id,
-	// 					(self.offset, self.width, self.height, self.width * format.width()),
-	// 					format,
-	// 				)),
-	// 				WaylandObjectKind::Buffer,
-	// 				self.id,
-	// 			));
-	// 		}
-	// 		BufferBackend::Dma(weak) => {
-	// 			let dmabuf = weak.upgrade().to_wl_err()?;
-	// 			let dmabuf = dmabuf.borrow();
-	// 			let dmafb = dmabuf.feedback.clone().unwrap();
-	// 			let dmafb = dmafb.borrow();
-	// 			let fd = dmafb.fd.unwrap();
-	// 			let format_width = dmabuf.surface.upgrade().to_wl_err()?.borrow().pf.width();
-	// 			let dmahad = make_dma_heap(fd, w as u32, h as u32, format_width as u32)?;
-	// 		}
-	// 	};
+		wlmm.queue_request(pool.wl_create_buffer(
+			buffer.id,
+			(
+				buffer.offset as i32,
+				buffer.w as i32,
+				buffer.h as i32,
+				(buffer.w * format.width()) as i32,
+			),
+			format,
+		));
 
-	// 	Ok(pending)
-	// }
+		Ok(())
+	}
 }
 
 impl ShmBackend {
-	pub fn new(app: &mut App) -> Result<Self, WaylandError> {
+	#[allow(clippy::new_ret_no_self)]
+	pub fn new(app: &mut App) -> Result<Rl<Box<dyn BufferBackend>>, WaylandError> {
 		let shm = SharedMemory::new_registered_bound(&mut app.god, &app.registry)?;
 		let pool = SharedMemoryPool::new_registered_allocated(&mut app.god, &shm, 8)?;
-		Ok(ShmBackend {
+		Ok(rl!(ShmBackend {
 			shm,
 			pool,
-		})
+		}
+		.boxed() as Box<dyn BufferBackend>))
 	}
 }
 
@@ -276,7 +267,7 @@ impl SharedMemoryPool {
 				Err(std::io::Error::last_os_error().into())
 			}
 		} else {
-			Err(WaylandError::RequiredValueNone("pointer to shm in unmap"))
+			Err(WaylandError::ExpectedSomeValue("pointer to shm in unmap"))
 		}
 	}
 
@@ -316,41 +307,43 @@ impl SharedMemoryPool {
 		Ok(())
 	}
 
-	// pub(crate) fn get_resize_actions_if_larger(
-	// 	&mut self,
-	// 	size: i32,
-	// ) -> Result<Vec<Action>, WaylandError> {
-	// 	let mut pending = vec![];
-	// 	if size < self.size {
-	// 		return Ok(pending);
-	// 	}
-	// 	handle_log!(
-	// 		pending,
-	// 		self,
-	// 		DebugLevel::Important,
-	// 		format!("{} | RESIZE size {size}", self.kind_str())
-	// 	);
-	// 	self.unmap()?;
-	// 	self.size = size;
-	// 	let r = unsafe { ftruncate(self.fd.as_raw_fd(), size.into()) };
-	// 	if r == 0 {
-	// 		Ok(())
-	// 	} else {
-	// 		Err(std::io::Error::last_os_error())
-	// 	}?;
-	// 	self.update_ptr()?;
-	// 	qpush!(pending, self.wl_resize());
-	// 	Ok(pending)
-	// }
+	pub(crate) fn get_resize_actions_if_larger(
+		&mut self,
+		size: i32,
+	) -> Result<Vec<Action>, WaylandError> {
+		dbug!(format!("size: {size}"));
+		let mut pending = vec![];
+		if size < self.size {
+			return Ok(pending);
+		}
+		handle_log!(
+			pending,
+			self,
+			DebugLevel::Important,
+			format!("{} | RESIZE size {size}", self.kind_str())
+		);
+		self.unmap()?;
+		self.size = size;
+		let r = unsafe { ftruncate(self.fd.as_raw_fd(), size.into()) };
+		if r == 0 {
+			Ok(())
+		} else {
+			Err(std::io::Error::last_os_error())
+		}?;
+		self.update_ptr()?;
+		qpush!(pending, self.wl_resize());
+		Ok(pending)
+	}
 
 	pub(crate) fn make_buffer(
 		&mut self,
 		god: &mut God,
 		(offset, w, h): (u32, u32, u32),
 		master: &Rl<Surface>,
+		backend: &Rl<Box<dyn BufferBackend>>,
 	) -> Result<Rl<Buffer>, WaylandError> {
 		let surface = master.borrow();
-		let buf = Buffer::new_registered(god, (offset, w, h), master)?;
+		let buf = Buffer::new_registered(god, (offset, w, h), master, backend)?;
 
 		buf.borrow_mut().slice = self.slice;
 
