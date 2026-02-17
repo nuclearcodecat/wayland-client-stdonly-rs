@@ -38,6 +38,7 @@ impl BufferBackend for ShmBackend {
 		h: u32,
 		surface: &Rl<Surface>,
 		backend: &Rl<Box<dyn BufferBackend>>,
+		_registry: &Rl<Registry>,
 	) -> Result<Rl<Buffer>, WaylandError> {
 		let mut pool = self.pool.borrow_mut();
 		let buffer = pool.make_buffer(god, (0, w, h), surface, backend)?;

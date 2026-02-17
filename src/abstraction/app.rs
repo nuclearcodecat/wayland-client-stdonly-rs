@@ -92,6 +92,7 @@ impl App {
 						surf_h,
 						&window.surface,
 						&window.backend,
+						&self.registry,
 					)?;
 					let mut surf = window.surface.borrow_mut();
 					surf.attach_buffer_obj(&mut self.god, buf)?;

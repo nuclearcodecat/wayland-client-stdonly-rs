@@ -51,7 +51,7 @@ pub(crate) enum Action {
 	EventResponse(WireEventRaw),
 	CallbackDone(Id, u32),
 	Sync(Id),
-	Error(Id, Id, OpCode, String),
+	Error(RecvError),
 	Trace(DebugLevel, &'static str, String),
 	IdDeletion(Id),
 	Resize(u32, u32, Rl<Surface>),
@@ -324,11 +324,27 @@ impl FromWirePayload for String {
 	}
 }
 
+impl FromWirePayload for u16 {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
+		is_empty(payload)?;
+		let p = payload;
+		Ok(u16::from_ne_bytes([p[0], p[1]]))
+	}
+}
+
 impl FromWirePayload for u32 {
 	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
 		is_empty(payload)?;
 		let p = payload;
 		Ok(u32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
+	}
+}
+
+impl FromWirePayload for u64 {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
+		is_empty(payload)?;
+		let p = payload;
+		Ok(u64::from_ne_bytes([p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]]))
 	}
 }
 
@@ -343,7 +359,14 @@ impl FromWirePayload for i32 {
 impl FromWirePayload for Vec<u32> {
 	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
 		is_empty(payload)?;
-		payload[4..].chunks(4).map(|chunk| u32::from_wire(chunk)).collect()
+		payload[4..].chunks(4).map(u32::from_wire).collect()
+	}
+}
+
+impl FromWirePayload for Vec<u16> {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
+		is_empty(payload)?;
+		payload[4..].chunks(2).map(u16::from_wire).collect()
 	}
 }
 
@@ -359,6 +382,10 @@ impl Error for RecvError {}
 
 impl Display for RecvError {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "id: {}, code: {}\nmsg: {}", self.id, self.code, self.msg)
+		write!(
+			f,
+			"recv error on id {} for id {}, code {}: {}",
+			self.recv_id, self.id, self.code, self.msg
+		)
 	}
 }

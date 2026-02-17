@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-	CYAN, DebugLevel, NONE, RED, Rl, WHITE, YELLOW, dbug,
+	CYAN, DebugLevel, NONE, RED, Rl, WHITE, YELLOW, dbug, get_dbug,
 	wayland::wire::{Action, Consequence, MessageManager},
 	wlog,
 };
@@ -85,6 +85,8 @@ pub enum WaylandError {
 	Nul(std::ffi::NulError),
 	ExpectedSomeValue(&'static str),
 	InvalidPixelFormat,
+	Dylib(libloading::Error),
+	FdExpected,
 }
 
 pub trait ExpectRc<T> {
@@ -124,6 +126,12 @@ impl From<std::ffi::NulError> for WaylandError {
 	}
 }
 
+impl From<libloading::Error> for WaylandError {
+	fn from(er: libloading::Error) -> Self {
+		WaylandError::Dylib(er)
+	}
+}
+
 impl Error for WaylandError {}
 
 impl Display for WaylandError {
@@ -151,6 +159,8 @@ impl Display for WaylandError {
 			WaylandError::Nul(er) => write!(f, "std::ffi::NulError received: {:?}", er),
 			WaylandError::ExpectedSomeValue(er) => write!(f, "expected a Some value: {er}"),
 			WaylandError::InvalidPixelFormat => write!(f, "invalid pixel format encountered"),
+			WaylandError::Dylib(er) => write!(f, "libloading error occured: {er}"),
+			WaylandError::FdExpected => write!(f, "expected fd"),
 		}
 	}
 }
@@ -296,6 +306,14 @@ pub enum PixelFormat {
 	Xrgb888,
 }
 
+pub(crate) const fn fourcc_code(a: u8, b: u8, c: u8, d: u8) -> u32 {
+	let a = a as u32;
+	let b = b as u32;
+	let c = c as u32;
+	let d = d as u32;
+	(a | b << 8) | (c << 16) | (d << 24)
+}
+
 impl PixelFormat {
 	pub(crate) fn from_u32(processee: u32) -> Result<PixelFormat, WaylandError> {
 		match processee {
@@ -312,12 +330,12 @@ impl PixelFormat {
 		}
 	}
 
-	// pub const fn to_fourcc(self) -> u32 {
-	// 	match self {
-	// 		PixelFormat::Argb888 => fourcc_code(b'X', b'R', b'2', b'4'),
-	// 		PixelFormat::Xrgb888 => fourcc_code(b'X', b'R', b'2', b'4'),
-	// 	}
-	// }
+	pub const fn to_fourcc(self) -> u32 {
+		match self {
+			PixelFormat::Argb888 => fourcc_code(b'X', b'R', b'2', b'4'),
+			PixelFormat::Xrgb888 => fourcc_code(b'X', b'R', b'2', b'4'),
+		}
+	}
 
 	// pub const fn bpp(&self) -> u32 {
 	// 	match self {
@@ -345,6 +363,7 @@ impl God {
 			retries += 1;
 		};
 		let mut conseq: VecDeque<Consequence> = VecDeque::new();
+		let mut last_responding_id: Option<Id> = None;
 		while let Some(action) = self.wlmm.q.pop_front() {
 			match action {
 				Action::RequestRequest(ev) => {
@@ -382,27 +401,38 @@ impl God {
 						break;
 					}
 				}
-				Action::Error(id, id_, opcode, x) => {
+				Action::Error(er) => {
 					conseq.push_back(Consequence::Trace(
 						DebugLevel::Error,
 						"error trace",
-						format!("{id} {id_} {opcode} {x}"),
+						format!("{er}"),
 						RED,
 						RED,
 					));
 				}
-				Action::Trace(debug_level, kind, msg) => {
-					conseq.push_back(Consequence::Trace(debug_level, kind, msg, WHITE, NONE));
-				}
+				Action::Trace(debug_level, kind, msg) => match debug_level {
+					DebugLevel::Error => {
+						conseq.push_back(Consequence::Trace(debug_level, kind, msg, WHITE, RED));
+					}
+					_ => {
+						conseq.push_back(Consequence::Trace(debug_level, kind, msg, WHITE, NONE));
+					}
+				},
 				Action::EventResponse(raw) => {
 					let obj = self.wlim.find_obj_by_id(raw.recv_id)?;
 					let actions_new = obj.borrow_mut().handle(&raw.payload, raw.opcode, &fds)?;
 					self.wlmm.q.extend_front(actions_new);
-					self.wlmm.q.push_front(Action::Trace(
-						DebugLevel::Verbose,
-						obj.borrow().kind_str(),
-						format!("handling self (id {})", raw.recv_id.raw()),
-					));
+					if get_dbug() > DebugLevel::Important as isize
+						|| last_responding_id.is_none()
+						|| last_responding_id.unwrap() != raw.recv_id
+					{
+						self.wlmm.q.push_front(Action::Trace(
+							DebugLevel::Verbose,
+							obj.borrow().kind_str(),
+							format!("handling self (id {})", raw.recv_id.raw()),
+						));
+					}
+					last_responding_id = Some(raw.recv_id);
 				}
 				Action::IdDeletion(id) => {
 					conseq.push_back(Consequence::IdDeletion(id));

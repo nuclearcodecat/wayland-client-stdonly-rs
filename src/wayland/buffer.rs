@@ -4,6 +4,7 @@ use crate::{
 	DebugLevel, Rl, Wl, handle_log, rl,
 	wayland::{
 		God, Id, IdentManager, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		registry::Registry,
 		surface::Surface,
 		wire::{Action, MessageManager, WireRequest},
 	},
@@ -17,6 +18,7 @@ pub trait BufferBackend {
 		h: u32,
 		surface: &Rl<Surface>,
 		backend: &Rl<Box<dyn BufferBackend>>,
+		registry: &Rl<Registry>,
 	) -> Result<Rl<Buffer>, WaylandError>;
 
 	fn resize(

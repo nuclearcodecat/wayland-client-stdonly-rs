@@ -35,7 +35,7 @@ pub(crate) fn get_dbug() -> isize {
 
 #[allow(dead_code)]
 #[repr(isize)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 pub(crate) enum DebugLevel {
 	None = -1,
 	Error,
@@ -100,4 +100,5 @@ macro_rules! rl {
 pub use crate::abstraction::app::App;
 pub use crate::abstraction::wizard::TopLevelWindowWizard;
 pub use crate::wayland::PixelFormat;
+pub use crate::wayland::dmabuf::backend::DmaBackend;
 pub use crate::wayland::shm::ShmBackend;

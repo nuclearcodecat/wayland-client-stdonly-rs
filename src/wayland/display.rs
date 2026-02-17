@@ -6,7 +6,7 @@ use crate::{
 		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
 		callback::Callback,
 		registry::Registry,
-		wire::{Action, FromWirePayload, WireArgument, WireRequest},
+		wire::{Action, FromWirePayload, RecvError, WireArgument, WireRequest},
 	},
 };
 
@@ -82,7 +82,12 @@ impl WaylandObject for Display {
 				let obj_id = u32::from_wire(p)?;
 				let code = u32::from_wire(&p[4..])?;
 				let message = String::from_wire(&p[8..])?;
-				pending.push(Action::Error(self.id, Id(obj_id), OpCode(code), message));
+				pending.push(Action::Error(RecvError {
+					recv_id: self.id,
+					id: Id(obj_id),
+					code: OpCode(code),
+					msg: message,
+				}));
 			}
 			1 => {
 				let deleted_id = u32::from_wire(p)?;
