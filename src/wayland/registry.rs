@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt, os::fd::OwnedFd};
 use crate::{
 	NONE, Rl, WHITE, handle_log, rl,
 	wayland::{
-		DebugLevel, God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		DebugLevel, God, Id, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
 		display::Display,
 		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 	},
@@ -82,14 +82,14 @@ impl Registry {
 		id: Id,
 		kind: WaylandObjectKind,
 		version: u32,
-	) -> Result<(), WaylandError> {
+	) -> Result<(), WaytinierError> {
 		let global_id = self
 			.inner
 			.iter()
 			.find(|(_, v)| v.interface == kind.as_str())
 			.map(|(k, _)| k)
 			.copied()
-			.ok_or(WaylandError::NotInRegistry(kind))?;
+			.ok_or(WaytinierError::NotInRegistry(kind))?;
 		wlog!(
 			DebugLevel::Important,
 			self.kind_str(),
@@ -112,7 +112,7 @@ impl WaylandObject for Registry {
 		p: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		let mut pending = vec![];
 		match opcode.raw() {
 			0 => {
@@ -135,7 +135,7 @@ impl WaylandObject for Registry {
 				todo!()
 			}
 			_ => {
-				return Err(WaylandError::InvalidOpCode(opcode, self.kind()));
+				return Err(WaytinierError::InvalidOpCode(opcode, self.kind()));
 			}
 		}
 		Ok(pending)

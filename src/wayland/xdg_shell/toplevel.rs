@@ -3,7 +3,7 @@ use std::os::fd::OwnedFd;
 use crate::{
 	DebugLevel, Rl, handle_log, rl,
 	wayland::{
-		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
 		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 		xdg_shell::surface::XdgSurface,
 	},
@@ -129,7 +129,7 @@ impl WaylandObject for XdgTopLevel {
 		payload: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		let mut pending = vec![];
 		match opcode.raw() {
 			// configure
@@ -143,7 +143,7 @@ impl WaylandObject for XdgTopLevel {
 							Ok(unsafe { std::mem::transmute::<u32, XdgTopLevelStates>(*en) })
 						} else {
 							// maybe try formatting this automatically
-							Err(WaylandError::InvalidEnumVariant("XdgTopLevelStates"))
+							Err(WaytinierError::InvalidEnumVariant("XdgTopLevelStates"))
 						}
 					})
 					.collect::<Result<Vec<_>, _>>()?;
@@ -170,7 +170,7 @@ impl WaylandObject for XdgTopLevel {
 			3 => {
 				todo!()
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind())),
+			_ => return Err(WaytinierError::InvalidOpCode(opcode, self.kind())),
 		}
 		Ok(pending)
 	}

@@ -3,7 +3,7 @@ use std::{error::Error, os::fd::OwnedFd};
 use crate::{
 	Rl, rl,
 	wayland::{
-		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
 		callback::Callback,
 		registry::Registry,
 		wire::{Action, FromWirePayload, RecvError, WireArgument, WireRequest},
@@ -60,7 +60,7 @@ impl Display {
 		}
 	}
 
-	pub(crate) fn sync(&self, god: &mut God) -> Result<Rl<Callback>, WaylandError> {
+	pub(crate) fn sync(&self, god: &mut God) -> Result<Rl<Callback>, WaytinierError> {
 		let cb = Callback::new_registered(god);
 		let id = cb.borrow().id;
 		god.wlmm.queue(Action::RequestRequest(self.wl_sync(id)));
@@ -75,7 +75,7 @@ impl WaylandObject for Display {
 		p: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		let mut pending = vec![];
 		match opcode.raw() {
 			0 => {
@@ -94,7 +94,7 @@ impl WaylandObject for Display {
 				pending.push(Action::IdDeletion(Id(deleted_id)));
 			}
 			inv => {
-				return Err(WaylandError::InvalidOpCode(OpCode(inv), self.kind()));
+				return Err(WaytinierError::InvalidOpCode(OpCode(inv), self.kind()));
 			}
 		}
 		Ok(pending)

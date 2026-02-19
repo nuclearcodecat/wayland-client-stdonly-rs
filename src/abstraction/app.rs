@@ -11,7 +11,7 @@ use crate::{
 	},
 	dbug, init_logger, rl, wait_for_sync,
 	wayland::{
-		Boxed, God, IdentManager, PixelFormat, WaylandError, buffer::BufferBackend,
+		Boxed, God, IdentManager, PixelFormat, WaytinierError, buffer::BufferBackend,
 		compositor::Compositor, display::Display, registry::Registry, shm::ShmBackend,
 		surface::Surface, wire::MessageManager,
 	},
@@ -27,7 +27,7 @@ pub struct App {
 }
 
 impl App {
-	pub fn new() -> Result<Self, WaylandError> {
+	pub fn new() -> Result<Self, WaytinierError> {
 		init_logger();
 
 		let mut god = God::default();
@@ -53,7 +53,7 @@ impl App {
 		Surface::new_registered_made(&mut self.god, &self.compositor, w, h, pf)
 	}
 
-	pub fn work<F, S>(&mut self, state: &mut S, mut render_fun: F) -> Result<bool, WaylandError>
+	pub fn work<F, S>(&mut self, state: &mut S, mut render_fun: F) -> Result<bool, WaytinierError>
 	where
 		F: FnMut(&mut S, Snapshot),
 	{

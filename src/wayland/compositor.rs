@@ -3,7 +3,7 @@ use std::os::fd::OwnedFd;
 use crate::{
 	Rl, rl,
 	wayland::{
-		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
 		registry::Registry,
 		wire::{Action, WireArgument, WireRequest},
 	},
@@ -30,7 +30,7 @@ impl Compositor {
 	pub(crate) fn new_registered_bound(
 		god: &mut God,
 		registry: &Rl<Registry>,
-	) -> Result<Rl<Self>, WaylandError> {
+	) -> Result<Rl<Self>, WaytinierError> {
 		let compositor = Self::new_registered(god);
 		registry.borrow_mut().bind(god, compositor.borrow().id, compositor.borrow().kind(), 5)?;
 		Ok(compositor)
@@ -57,7 +57,7 @@ impl WaylandObject for Compositor {
 		_payload: &[u8],
 		_opcode: super::OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		todo!()
 	}
 

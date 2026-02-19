@@ -7,14 +7,13 @@ use std::{
 use libc::{MAP_FAILED, MAP_PRIVATE, PROT_READ};
 
 use crate::{
-	DebugLevel, PixelFormat, Rl, Wl, dbug, rl,
+	DebugLevel, PixelFormat, Rl, Wl, rl,
 	wayland::{
-		Boxed, ExpectRc, God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		ExpectRc, God, Id, OpCode, Raw, WaylandObject, WaylandObjectKind, WaytinierError,
 		registry::Registry,
 		surface::Surface,
 		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 	},
-	wlog,
 };
 
 pub(crate) struct DmaBuf {
@@ -30,6 +29,7 @@ pub(crate) struct DmaFeedback {
 	pub(crate) done: bool,
 	pub(crate) format_table: Vec<(u32, u64)>,
 	pub(crate) format_indices: Vec<u16>,
+	pub(crate) target_device: Option<u32>,
 }
 
 impl WaylandObject for DmaBuf {
@@ -38,7 +38,7 @@ impl WaylandObject for DmaBuf {
 		payload: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		let mut pending = vec![];
 		match opcode.raw() {
 			0 => {
@@ -70,7 +70,7 @@ impl WaylandObject for DmaBuf {
 					format!("found modifier for dmabuf: {modifier}"),
 				));
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind())),
+			_ => return Err(WaytinierError::InvalidOpCode(opcode, self.kind())),
 		}
 		Ok(pending)
 	}
@@ -101,7 +101,7 @@ impl DmaBuf {
 		god: &mut God,
 		registry: &Rl<Registry>,
 		surface: &Rl<Surface>,
-	) -> Result<Rl<Self>, WaylandError> {
+	) -> Result<Rl<Self>, WaytinierError> {
 		let new = Self::new_registered(god, surface);
 		let dbuf = new.clone();
 		let dbuf = dbuf.borrow();
@@ -126,7 +126,7 @@ impl WaylandObject for DmaFeedback {
 		payload: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		let mut pending = vec![];
 		match opcode.raw() {
 			// done
@@ -136,7 +136,7 @@ impl WaylandObject for DmaFeedback {
 			// format_table
 			1 => {
 				let size = u32::from_wire(payload)? as usize;
-				let fd = _fds.first().ok_or(WaylandError::FdExpected)?;
+				let fd = _fds.first().ok_or(WaytinierError::FdExpected)?;
 				let ptr = unsafe {
 					libc::mmap(null_mut(), size, PROT_READ, MAP_PRIVATE, fd.as_raw_fd(), 0)
 				};
@@ -171,8 +171,8 @@ impl WaylandObject for DmaFeedback {
 			}
 			// tranche_target_device
 			4 => {
-				dbug!("tranche_target_device");
 				let target_device: Vec<u32> = Vec::from_wire(payload)?;
+				self.target_device = Some(target_device[0]);
 				pending.push(Action::Trace(
 					DebugLevel::Important,
 					self.kind_str(),
@@ -181,7 +181,6 @@ impl WaylandObject for DmaFeedback {
 			}
 			// tranche_formats
 			5 => {
-				dbug!("tranche_formats");
 				let indices: Vec<u16> = Vec::from_wire(payload)?;
 				self.format_indices = indices;
 				pending.push(Action::Trace(
@@ -217,7 +216,6 @@ impl WaylandObject for DmaFeedback {
 			}
 			// tranche_flags
 			6 => {
-				dbug!("tranche_flags");
 				let flags = u32::from_wire(payload)?;
 				let mut v = vec![];
 				if flags & TrancheFlags::Scanout as u32 != 0 {
@@ -229,7 +227,7 @@ impl WaylandObject for DmaFeedback {
 					format!("tranche flags: {:?}", v),
 				));
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind())),
+			_ => return Err(WaytinierError::InvalidOpCode(opcode, self.kind())),
 		}
 		Ok(pending)
 	}
@@ -247,6 +245,7 @@ impl DmaFeedback {
 			done: false,
 			format_table: vec![],
 			format_indices: vec![],
+			target_device: None,
 		})
 	}
 
@@ -263,7 +262,7 @@ impl DmaFeedback {
 		new
 	}
 
-	fn parse_format_table(&mut self, slice: &[u8]) -> Result<(), WaylandError> {
+	fn parse_format_table(&mut self, slice: &[u8]) -> Result<(), WaytinierError> {
 		for chunk in slice.chunks(16) {
 			let format = u32::from_wire(chunk)?;
 			let _padding = u32::from_wire(&chunk[4..])?;

@@ -3,7 +3,7 @@ use std::os::fd::OwnedFd;
 use crate::{
 	Rl, rl,
 	wayland::{
-		God, Id, OpCode, PixelFormat, WaylandError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, PixelFormat, WaytinierError, WaylandObject, WaylandObjectKind,
 		buffer::Buffer,
 		callback::Callback,
 		compositor::Compositor,
@@ -63,16 +63,16 @@ impl Surface {
 		&mut self,
 		god: &mut God,
 		to_att: Rl<Buffer>,
-	) -> Result<(), WaylandError> {
+	) -> Result<(), WaytinierError> {
 		self.attached_buf = Some(to_att.clone());
 		self.attach_buffer(god)
 	}
 
-	pub(crate) fn attach_buffer(&mut self, god: &mut God) -> Result<(), WaylandError> {
+	pub(crate) fn attach_buffer(&mut self, god: &mut God) -> Result<(), WaytinierError> {
 		let buf = self
 			.attached_buf
 			.clone()
-			.ok_or(WaylandError::ExpectedSomeValue("no buffer attached to surface"))?;
+			.ok_or(WaytinierError::ExpectedSomeValue("no buffer attached to surface"))?;
 		god.wlmm.queue_request(self.wl_attach(buf.borrow().id));
 		Ok(())
 	}
@@ -101,18 +101,18 @@ impl Surface {
 		}
 	}
 
-	pub(crate) fn frame(&self, god: &mut God) -> Result<Rl<Callback>, WaylandError> {
+	pub(crate) fn frame(&self, god: &mut God) -> Result<Rl<Callback>, WaytinierError> {
 		let cb = Callback::new_registered(god);
 		god.wlmm.queue_request(self.wl_frame(cb.borrow().id));
 		Ok(cb)
 	}
 
-	pub(crate) fn get_buffer_slice(&self) -> Result<*mut [u8], WaylandError> {
+	pub(crate) fn get_buffer_slice(&self) -> Result<*mut [u8], WaytinierError> {
 		if let Some(buf) = &self.attached_buf {
 			let mut buf = buf.borrow_mut();
 			buf.get_slice()
 		} else {
-			Err(WaylandError::ExpectedSomeValue("no buffer attached to surface"))
+			Err(WaytinierError::ExpectedSomeValue("no buffer attached to surface"))
 		}
 	}
 
@@ -135,12 +135,12 @@ impl Surface {
 		god.wlmm.queue_request(self.wl_damage_buffer(x, y, w, h))
 	}
 
-	pub(crate) fn repaint(&self, god: &mut God) -> Result<(), WaylandError> {
+	pub(crate) fn repaint(&self, god: &mut God) -> Result<(), WaytinierError> {
 		if self.attached_buf.is_some() {
 			self.damage_buffer(god, (0, 0), (self.w as i32, self.h as i32));
 			Ok(())
 		} else {
-			Err(WaylandError::ExpectedSomeValue("no buffer attached to surface"))
+			Err(WaytinierError::ExpectedSomeValue("no buffer attached to surface"))
 		}
 	}
 }
@@ -151,7 +151,7 @@ impl WaylandObject for Surface {
 		_payload: &[u8],
 		_opcode: super::OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		todo!()
 	}
 

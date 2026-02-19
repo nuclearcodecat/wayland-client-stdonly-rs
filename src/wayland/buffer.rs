@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
 	DebugLevel, Rl, Wl, handle_log, rl,
 	wayland::{
-		God, Id, IdentManager, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		God, Id, IdentManager, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
 		registry::Registry,
 		surface::Surface,
 		wire::{Action, MessageManager, WireRequest},
@@ -19,7 +19,7 @@ pub trait BufferBackend {
 		surface: &Rl<Surface>,
 		backend: &Rl<Box<dyn BufferBackend>>,
 		registry: &Rl<Registry>,
-	) -> Result<Rl<Buffer>, WaylandError>;
+	) -> Result<Rl<Buffer>, WaytinierError>;
 
 	fn resize(
 		&mut self,
@@ -29,7 +29,7 @@ pub trait BufferBackend {
 		buf: &Rl<Buffer>,
 		w: u32,
 		h: u32,
-	) -> Result<(), WaylandError>;
+	) -> Result<(), WaytinierError>;
 }
 
 pub(crate) struct Buffer {
@@ -67,15 +67,15 @@ impl Buffer {
 		(offset, width, height): (u32, u32, u32),
 		master: &Rl<Surface>,
 		backend: &Rl<Box<dyn BufferBackend>>,
-	) -> Result<Rl<Buffer>, WaylandError> {
+	) -> Result<Rl<Buffer>, WaytinierError> {
 		let buf = Self::new(Id(0), (offset, width, height), master, backend);
 		let id = god.wlim.new_id_registered(buf.clone());
 		buf.borrow_mut().id = id;
 		Ok(buf)
 	}
 
-	pub(crate) fn get_slice(&mut self) -> Result<*mut [u8], WaylandError> {
-		self.slice.ok_or(WaylandError::ExpectedSomeValue("no memory slice in buf"))
+	pub(crate) fn get_slice(&mut self) -> Result<*mut [u8], WaytinierError> {
+		self.slice.ok_or(WaytinierError::ExpectedSomeValue("no memory slice in buf"))
 	}
 
 	pub(crate) fn wl_destroy(&self) -> WireRequest {
@@ -95,7 +95,7 @@ impl WaylandObject for Buffer {
 		_payload: &[u8],
 		opcode: OpCode,
 		_fds: &[std::os::unix::prelude::OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		let mut pending = vec![];
 		match opcode.raw() {
 			// release
@@ -103,7 +103,7 @@ impl WaylandObject for Buffer {
 				self.in_use = false;
 				handle_log!(pending, self, DebugLevel::Verbose, String::from("released"));
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind())),
+			_ => return Err(WaytinierError::InvalidOpCode(opcode, self.kind())),
 		}
 		Ok(pending)
 	}

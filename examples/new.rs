@@ -1,8 +1,8 @@
-use waytinier::{App, DmaBackend, ShmBackend, TopLevelWindowWizard, wayland::WaylandError};
+use waytinier::{App, DmaBackend, ShmBackend, TopLevelWindowWizard, wayland::WaytinierError};
 
 struct AppState {}
 
-fn main() -> Result<(), WaylandError> {
+fn main() -> Result<(), WaytinierError> {
 	let mut app = App::new()?;
 	let backend = DmaBackend::new(&mut app)?;
 	let window = TopLevelWindowWizard::new(&mut app).with_backend(&backend).spawn()?;

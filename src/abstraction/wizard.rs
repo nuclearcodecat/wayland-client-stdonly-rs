@@ -6,7 +6,7 @@ use crate::{
 	},
 	wait_for_sync,
 	wayland::{
-		PixelFormat, WaylandError,
+		PixelFormat, WaytinierError,
 		buffer::BufferBackend,
 		surface::Surface,
 		xdg_shell::{surface::XdgSurface, toplevel::XdgTopLevel, wm_base::XdgWmBase},
@@ -83,7 +83,7 @@ impl<'a> TopLevelWindowWizard<'a> {
 		self
 	}
 
-	pub fn spawn(self) -> Result<Box<dyn PresenterObject>, WaylandError> {
+	pub fn spawn(self) -> Result<Box<dyn PresenterObject>, WaytinierError> {
 		let mut god = &mut self.parent.god;
 		let registry = &self.parent.registry;
 		let compositor = &self.parent.compositor;
@@ -95,7 +95,7 @@ impl<'a> TopLevelWindowWizard<'a> {
 			self.xdg_wm_base.unwrap_or(XdgWmBase::new_registered_bound(registry, god)?);
 		let xdg_surface = XdgSurface::new_registered(god, &xdg_wm_base, &surface);
 		let xdg_toplevel = XdgTopLevel::new_registered_gotten(god, &xdg_surface);
-		let backend = self.backend.ok_or(WaylandError::ExpectedSomeValue(
+		let backend = self.backend.ok_or(WaytinierError::ExpectedSomeValue(
 			"attach a BufferBackend trait object with ::with_backend()",
 		))?;
 		surface.borrow().commit(god);

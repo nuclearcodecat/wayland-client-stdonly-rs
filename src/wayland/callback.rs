@@ -3,7 +3,7 @@ use std::os::fd::OwnedFd;
 use crate::{
 	Rl, rl,
 	wayland::{
-		God, Id, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		God, Id, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
 		wire::{Action, FromWirePayload},
 	},
 };
@@ -37,7 +37,7 @@ impl WaylandObject for Callback {
 		payload: &[u8],
 		opcode: super::OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		let mut pending = vec![];
 		match opcode.raw() {
 			0 => {
@@ -46,7 +46,7 @@ impl WaylandObject for Callback {
 				self.data = Some(data);
 				pending.push(Action::CallbackDone(self.id, data));
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind())),
+			_ => return Err(WaytinierError::InvalidOpCode(opcode, self.kind())),
 		}
 		Ok(pending)
 	}

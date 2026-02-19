@@ -3,7 +3,7 @@ use std::os::fd::OwnedFd;
 use crate::{
 	Rl, qpush, rl,
 	wayland::{
-		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
 		registry::Registry,
 		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 	},
@@ -17,7 +17,7 @@ impl XdgWmBase {
 	pub(crate) fn new_registered_bound(
 		registry: &Rl<Registry>,
 		god: &mut God,
-	) -> Result<Rl<Self>, WaylandError> {
+	) -> Result<Rl<Self>, WaytinierError> {
 		let mut reg = registry.borrow_mut();
 		let obj = rl!(Self {
 			id: Id(0),
@@ -73,7 +73,7 @@ impl WaylandObject for XdgWmBase {
 		payload: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		let mut pending = vec![];
 		match opcode.raw() {
 			// ping
@@ -81,7 +81,7 @@ impl WaylandObject for XdgWmBase {
 				let serial = u32::from_wire(payload)?;
 				qpush!(pending, self.wl_pong(serial));
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind())),
+			_ => return Err(WaytinierError::InvalidOpCode(opcode, self.kind())),
 		}
 		Ok(pending)
 	}

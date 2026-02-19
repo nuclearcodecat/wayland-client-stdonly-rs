@@ -62,7 +62,7 @@ pub(crate) trait WaylandObject {
 		payload: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError>;
+	) -> Result<Vec<Action>, WaytinierError>;
 	fn kind(&self) -> WaylandObjectKind;
 	fn kind_str(&self) -> &'static str {
 		self.kind().as_str()
@@ -70,7 +70,7 @@ pub(crate) trait WaylandObject {
 }
 
 #[derive(Debug)]
-pub enum WaylandError {
+pub enum WaytinierError {
 	EmptyFromWirePayload,
 	RecvLenBad,
 	NoWaylandDisplay,
@@ -84,83 +84,87 @@ pub enum WaylandError {
 	Utf8(std::string::FromUtf8Error),
 	Nul(std::ffi::NulError),
 	ExpectedSomeValue(&'static str),
-	InvalidPixelFormat,
+	ExoticOrInvalidPixelFormat,
 	Dylib(libloading::Error),
 	FdExpected,
+	NullPtr(&'static str),
 }
 
 pub trait ExpectRc<T> {
-	fn to_wl_err(self) -> Result<Rc<T>, WaylandError>;
+	fn to_wl_err(self) -> Result<Rc<T>, WaytinierError>;
 }
 
 impl<T> ExpectRc<T> for Option<Rc<T>> {
-	fn to_wl_err(self) -> Result<Rc<T>, WaylandError> {
+	fn to_wl_err(self) -> Result<Rc<T>, WaytinierError> {
 		match self {
 			Some(x) => Ok(x),
-			None => Err(WaylandError::ExpectedSomeValue("Weak was empty")),
+			None => Err(WaytinierError::ExpectedSomeValue("Weak was empty")),
 		}
 	}
 }
 
-impl From<std::io::Error> for WaylandError {
+impl From<std::io::Error> for WaytinierError {
 	fn from(er: std::io::Error) -> Self {
-		WaylandError::Io(er)
+		WaytinierError::Io(er)
 	}
 }
 
-impl From<std::env::VarError> for WaylandError {
+impl From<std::env::VarError> for WaytinierError {
 	fn from(er: std::env::VarError) -> Self {
-		WaylandError::Env(er)
+		WaytinierError::Env(er)
 	}
 }
 
-impl From<std::string::FromUtf8Error> for WaylandError {
+impl From<std::string::FromUtf8Error> for WaytinierError {
 	fn from(er: std::string::FromUtf8Error) -> Self {
-		WaylandError::Utf8(er)
+		WaytinierError::Utf8(er)
 	}
 }
 
-impl From<std::ffi::NulError> for WaylandError {
+impl From<std::ffi::NulError> for WaytinierError {
 	fn from(er: std::ffi::NulError) -> Self {
-		WaylandError::Nul(er)
+		WaytinierError::Nul(er)
 	}
 }
 
-impl From<libloading::Error> for WaylandError {
+impl From<libloading::Error> for WaytinierError {
 	fn from(er: libloading::Error) -> Self {
-		WaylandError::Dylib(er)
+		WaytinierError::Dylib(er)
 	}
 }
 
-impl Error for WaylandError {}
+impl Error for WaytinierError {}
 
-impl Display for WaylandError {
+impl Display for WaytinierError {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			WaylandError::EmptyFromWirePayload => write!(f, "payload from wire was empty"),
-			WaylandError::RecvLenBad => write!(f, "received len of payload was bad"),
-			WaylandError::NoWaylandDisplay => {
+			WaytinierError::EmptyFromWirePayload => write!(f, "payload from wire was empty"),
+			WaytinierError::RecvLenBad => write!(f, "received len of payload was bad"),
+			WaytinierError::NoWaylandDisplay => {
 				write!(f, "provided wayland display identifier doesn't exist")
 			}
-			WaylandError::InvalidOpCode(code, name) => {
+			WaytinierError::InvalidOpCode(code, name) => {
 				write!(f, "invalid opcode {code} encountered for {name}")
 			}
-			WaylandError::ObjectNonExistent => write!(f, "object does not exist in the map"),
-			WaylandError::IdMapRemovalFail => write!(f, "failed to remove object from idmap"),
-			WaylandError::NotInRegistry(kind) => {
+			WaytinierError::ObjectNonExistent => write!(f, "object does not exist in the map"),
+			WaytinierError::IdMapRemovalFail => write!(f, "failed to remove object from idmap"),
+			WaytinierError::NotInRegistry(kind) => {
 				write!(f, "object of kind {kind} not found in registry")
 			}
-			WaylandError::InvalidEnumVariant(kind) => {
+			WaytinierError::InvalidEnumVariant(kind) => {
 				write!(f, "an invalid {kind} enum variant has been received")
 			}
-			WaylandError::Io(er) => write!(f, "std::io::Error received: {:?}", er),
-			WaylandError::Env(er) => write!(f, "std::env::VarError received: {:?}", er),
-			WaylandError::Utf8(er) => write!(f, "std::string::FromUtf8Error received: {:?}", er),
-			WaylandError::Nul(er) => write!(f, "std::ffi::NulError received: {:?}", er),
-			WaylandError::ExpectedSomeValue(er) => write!(f, "expected a Some value: {er}"),
-			WaylandError::InvalidPixelFormat => write!(f, "invalid pixel format encountered"),
-			WaylandError::Dylib(er) => write!(f, "libloading error occured: {er}"),
-			WaylandError::FdExpected => write!(f, "expected fd"),
+			WaytinierError::Io(er) => write!(f, "std::io::Error received: {:?}", er),
+			WaytinierError::Env(er) => write!(f, "std::env::VarError received: {:?}", er),
+			WaytinierError::Utf8(er) => write!(f, "std::string::FromUtf8Error received: {:?}", er),
+			WaytinierError::Nul(er) => write!(f, "std::ffi::NulError received: {:?}", er),
+			WaytinierError::ExpectedSomeValue(er) => write!(f, "expected a Some value: {er}"),
+			WaytinierError::ExoticOrInvalidPixelFormat => {
+				write!(f, "invalid pixel format encountered")
+			}
+			WaytinierError::Dylib(er) => write!(f, "libloading error occured: {er}"),
+			WaytinierError::FdExpected => write!(f, "expected fd"),
+			WaytinierError::NullPtr(er) => write!(f, "null pointer at {er}"),
 		}
 	}
 }
@@ -249,11 +253,11 @@ impl IdentManager {
 		id
 	}
 
-	pub(crate) fn free_id(&mut self, id: Id) -> Result<(), WaylandError> {
+	pub(crate) fn free_id(&mut self, id: Id) -> Result<(), WaytinierError> {
 		let registered =
 			self.idmap.iter().find(|(k, _)| **k == id.raw() as usize).map(|(k, _)| k).copied();
 		if let Some(r) = registered {
-			self.idmap.remove(&r).ok_or(WaylandError::IdMapRemovalFail)?;
+			self.idmap.remove(&r).ok_or(WaytinierError::IdMapRemovalFail)?;
 		}
 		self.free.push_back(id);
 		wlog!(
@@ -267,12 +271,12 @@ impl IdentManager {
 	}
 
 	// ugh
-	pub(crate) fn find_obj_by_id(&self, id: Id) -> Result<&Wlto, WaylandError> {
+	pub(crate) fn find_obj_by_id(&self, id: Id) -> Result<&Wlto, WaytinierError> {
 		self.idmap
 			.iter()
 			.find(|(k, _)| **k == id.raw() as usize)
 			.map(|(_, v)| v)
-			.ok_or(WaylandError::ObjectNonExistent)
+			.ok_or(WaytinierError::ObjectNonExistent)
 	}
 }
 
@@ -298,7 +302,6 @@ pub(crate) trait Boxed: Sized {
 
 impl<T> Boxed for T {}
 
-#[repr(C)]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub enum PixelFormat {
 	#[default]
@@ -315,34 +318,37 @@ pub(crate) const fn fourcc_code(a: u8, b: u8, c: u8, d: u8) -> u32 {
 }
 
 impl PixelFormat {
-	pub(crate) fn from_u32(processee: u32) -> Result<PixelFormat, WaylandError> {
+	pub(crate) fn from_shm(processee: u32) -> Result<Self, WaytinierError> {
 		match processee {
-			0 => Ok(PixelFormat::Argb888),
-			1 => Ok(PixelFormat::Xrgb888),
-			_ => Err(WaylandError::InvalidPixelFormat),
+			0 => Ok(Self::Argb888),
+			1 => Ok(Self::Xrgb888),
+			_ => Self::from_u32(processee),
 		}
 	}
 
-	pub const fn width(&self) -> u32 {
+	const CC4_ARGB888: u32 = Self::Argb888.to_fourcc();
+	const CC4_XRGB888: u32 = Self::Xrgb888.to_fourcc();
+	pub(crate) const fn from_u32(processee: u32) -> Result<Self, WaytinierError> {
+		match processee {
+			x if x == Self::CC4_ARGB888 => Ok(Self::Argb888),
+			x if x == Self::CC4_XRGB888 => Ok(Self::Xrgb888),
+			_ => Err(WaytinierError::ExoticOrInvalidPixelFormat),
+		}
+	}
+
+	pub(crate) const fn width(&self) -> u32 {
 		match self {
 			Self::Argb888 => 4,
 			Self::Xrgb888 => 4,
 		}
 	}
 
-	pub const fn to_fourcc(self) -> u32 {
+	pub(crate) const fn to_fourcc(&self) -> u32 {
 		match self {
-			PixelFormat::Argb888 => fourcc_code(b'X', b'R', b'2', b'4'),
-			PixelFormat::Xrgb888 => fourcc_code(b'X', b'R', b'2', b'4'),
+			Self::Argb888 => fourcc_code(b'X', b'R', b'2', b'4'),
+			Self::Xrgb888 => fourcc_code(b'X', b'R', b'2', b'4'),
 		}
 	}
-
-	// pub const fn bpp(&self) -> u32 {
-	// 	match self {
-	// 		PixelFormat::Argb888 => 32,
-	// 		PixelFormat::Xrgb888 => 32,
-	// 	}
-	// }
 }
 
 #[derive(Default)]
@@ -352,7 +358,7 @@ pub(crate) struct God {
 }
 
 impl God {
-	pub fn handle_events(&mut self) -> Result<(), WaylandError> {
+	pub fn handle_events(&mut self) -> Result<(), WaytinierError> {
 		wlog!(DebugLevel::Trivial, "event handler", "called", CYAN, NONE);
 		let mut retries = 0;
 		let fds = loop {

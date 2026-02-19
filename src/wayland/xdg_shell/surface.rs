@@ -3,7 +3,7 @@ use std::os::fd::OwnedFd;
 use crate::{
 	DebugLevel, Rl, handle_log, qpush, rl,
 	wayland::{
-		God, Id, OpCode, Raw, WaylandError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
 		surface::Surface,
 		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 		xdg_shell::wm_base::XdgWmBase,
@@ -78,7 +78,7 @@ impl WaylandObject for XdgSurface {
 		payload: &[u8],
 		opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		let mut pending = vec![];
 		match opcode.raw() {
 			// configure
@@ -94,7 +94,7 @@ impl WaylandObject for XdgSurface {
 
 				qpush!(pending, self.wl_ack_configure(serial));
 			}
-			_ => return Err(WaylandError::InvalidOpCode(opcode, self.kind())),
+			_ => return Err(WaytinierError::InvalidOpCode(opcode, self.kind())),
 		}
 		Ok(pending)
 	}

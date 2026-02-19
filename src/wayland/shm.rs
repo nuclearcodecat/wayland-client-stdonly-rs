@@ -15,8 +15,8 @@ use crate::{
 	abstraction::app::App,
 	dbug, handle_log, qpush, rl,
 	wayland::{
-		Boxed, ExpectRc, God, Id, IdentManager, OpCode, PixelFormat, Raw, WaylandError,
-		WaylandObject, WaylandObjectKind,
+		Boxed, ExpectRc, God, Id, IdentManager, OpCode, PixelFormat, Raw, WaylandObject,
+		WaylandObjectKind, WaytinierError,
 		buffer::{Buffer, BufferBackend},
 		registry::Registry,
 		surface::Surface,
@@ -39,7 +39,7 @@ impl BufferBackend for ShmBackend {
 		surface: &Rl<Surface>,
 		backend: &Rl<Box<dyn BufferBackend>>,
 		_registry: &Rl<Registry>,
-	) -> Result<Rl<Buffer>, WaylandError> {
+	) -> Result<Rl<Buffer>, WaytinierError> {
 		let mut pool = self.pool.borrow_mut();
 		let buffer = pool.make_buffer(god, (0, w, h), surface, backend)?;
 		Ok(buffer)
@@ -52,7 +52,7 @@ impl BufferBackend for ShmBackend {
 		buf: &Rl<Buffer>,
 		w: u32,
 		h: u32,
-	) -> Result<(), WaylandError> {
+	) -> Result<(), WaytinierError> {
 		let id = wlim.new_id_registered(buf.clone());
 		let mut buffer = buf.borrow_mut();
 		wlmm.queue_request(buffer.wl_destroy());
@@ -85,7 +85,7 @@ impl BufferBackend for ShmBackend {
 
 impl ShmBackend {
 	#[allow(clippy::new_ret_no_self)]
-	pub fn new(app: &mut App) -> Result<Rl<Box<dyn BufferBackend>>, WaylandError> {
+	pub fn new(app: &mut App) -> Result<Rl<Box<dyn BufferBackend>>, WaytinierError> {
 		let shm = SharedMemory::new_registered_bound(&mut app.god, &app.registry)?;
 		let pool = SharedMemoryPool::new_registered_allocated(&mut app.god, &shm, 8)?;
 		Ok(rl!(ShmBackend {
@@ -119,7 +119,7 @@ impl SharedMemory {
 	pub(crate) fn new_registered_bound(
 		god: &mut God,
 		registry: &Rl<Registry>,
-	) -> Result<Rl<Self>, WaylandError> {
+	) -> Result<Rl<Self>, WaytinierError> {
 		let new = Self::new_registered(god);
 		registry.borrow_mut().bind(god, new.borrow().id, WaylandObjectKind::SharedMemory, 1)?;
 		Ok(new)
@@ -166,7 +166,7 @@ impl SharedMemoryPool {
 		})
 	}
 
-	fn make_unique_pool_name() -> Result<CString, WaylandError> {
+	fn make_unique_pool_name() -> Result<CString, WaytinierError> {
 		let mut vec = vec![];
 		while vec.len() < 16 {
 			let random: u8 = std::random::random(..);
@@ -191,7 +191,7 @@ impl SharedMemoryPool {
 		god: &mut God,
 		shm: &Rl<SharedMemory>,
 		size: i32,
-	) -> Result<Rl<SharedMemoryPool>, WaylandError> {
+	) -> Result<Rl<SharedMemoryPool>, WaytinierError> {
 		let name = Self::make_unique_pool_name()?;
 		let raw_fd = unsafe { shm_open(name.as_ptr(), O_RDWR | O_CREAT, 0) };
 		if raw_fd == -1 {
@@ -260,7 +260,7 @@ impl SharedMemoryPool {
 		}
 	}
 
-	fn unmap(&self) -> Result<(), WaylandError> {
+	fn unmap(&self) -> Result<(), WaytinierError> {
 		if let Some(ptr) = self.ptr {
 			if unsafe { munmap(ptr, self.size as usize) } == 0 {
 				Ok(())
@@ -268,7 +268,7 @@ impl SharedMemoryPool {
 				Err(std::io::Error::last_os_error().into())
 			}
 		} else {
-			Err(WaylandError::ExpectedSomeValue("pointer to shm in unmap"))
+			Err(WaytinierError::ExpectedSomeValue("pointer to shm in unmap"))
 		}
 	}
 
@@ -281,13 +281,13 @@ impl SharedMemoryPool {
 		}
 	}
 
-	pub(crate) fn destroy(&self) -> Result<(), WaylandError> {
+	pub(crate) fn destroy(&self) -> Result<(), WaytinierError> {
 		self.unmap()?;
 		self.unlink()?;
 		Ok(())
 	}
 
-	pub(crate) fn update_ptr(&mut self) -> Result<(), WaylandError> {
+	pub(crate) fn update_ptr(&mut self) -> Result<(), WaytinierError> {
 		let ptr = unsafe {
 			mmap(
 				ptr::null_mut(),
@@ -311,7 +311,7 @@ impl SharedMemoryPool {
 	pub(crate) fn get_resize_actions_if_larger(
 		&mut self,
 		size: i32,
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		dbug!(format!("size: {size}"));
 		let mut pending = vec![];
 		if size < self.size {
@@ -342,7 +342,7 @@ impl SharedMemoryPool {
 		(offset, w, h): (u32, u32, u32),
 		master: &Rl<Surface>,
 		backend: &Rl<Box<dyn BufferBackend>>,
-	) -> Result<Rl<Buffer>, WaylandError> {
+	) -> Result<Rl<Buffer>, WaytinierError> {
 		let surface = master.borrow();
 		let buf = Buffer::new_registered(god, (offset, w, h), master, backend)?;
 
@@ -363,12 +363,12 @@ impl WaylandObject for SharedMemory {
 		payload: &[u8],
 		opcode: super::OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		let mut pending = vec![];
 		match opcode.raw() {
 			0 => {
 				let format = u32::from_wire(payload)?;
-				if let Ok(pf) = PixelFormat::from_u32(format) {
+				if let Ok(pf) = PixelFormat::from_shm(format) {
 					self.push_pix_format(pf);
 					handle_log!(
 						pending,
@@ -386,7 +386,7 @@ impl WaylandObject for SharedMemory {
 				}
 			}
 			_ => {
-				return Err(WaylandError::InvalidOpCode(opcode, self.kind()));
+				return Err(WaytinierError::InvalidOpCode(opcode, self.kind()));
 			}
 		}
 		Ok(pending)
@@ -407,7 +407,7 @@ impl WaylandObject for SharedMemoryPool {
 		_payload: &[u8],
 		_opcode: OpCode,
 		_fds: &[OwnedFd],
-	) -> Result<Vec<Action>, WaylandError> {
+	) -> Result<Vec<Action>, WaytinierError> {
 		todo!()
 	}
 

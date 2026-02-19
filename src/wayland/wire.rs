@@ -13,7 +13,7 @@ use std::{
 
 use crate::{
 	CYAN, DebugLevel, GREEN, NONE, RED, Rl,
-	wayland::{Boxed, Id, OpCode, Raw, WaylandError, WaylandObjectKind, surface::Surface},
+	wayland::{Boxed, Id, OpCode, Raw, WaytinierError, WaylandObjectKind, surface::Surface},
 	wlog,
 };
 
@@ -96,7 +96,7 @@ impl Default for MessageManager {
 }
 
 impl MessageManager {
-	pub(crate) fn new(sockname: &str) -> Result<Self, WaylandError> {
+	pub(crate) fn new(sockname: &str) -> Result<Self, WaytinierError> {
 		let base = env::var("XDG_RUNTIME_DIR")?;
 		let mut base = PathBuf::from(base);
 		base.push(sockname);
@@ -110,27 +110,27 @@ impl MessageManager {
 		Ok(wlmm)
 	}
 
-	pub(crate) fn from_defualt_env() -> Result<Self, WaylandError> {
+	pub(crate) fn from_defualt_env() -> Result<Self, WaytinierError> {
 		let env = env::var("WAYLAND_DISPLAY");
 		match env {
 			Ok(x) => Ok(Self::new(&x)?),
 			Err(er) => match er {
-				std::env::VarError::NotPresent => Err(WaylandError::NoWaylandDisplay),
-				_ => Err(WaylandError::Env(er)),
+				std::env::VarError::NotPresent => Err(WaytinierError::NoWaylandDisplay),
+				_ => Err(WaytinierError::Env(er)),
 			},
 		}
 	}
 
-	pub(crate) fn discon(&self) -> Result<(), WaylandError> {
+	pub(crate) fn discon(&self) -> Result<(), WaytinierError> {
 		Ok(self.sock.shutdown(std::net::Shutdown::Both)?)
 	}
 
-	pub(crate) fn send_request_logged(&self, msg: &mut WireRequest) -> Result<(), WaylandError> {
+	pub(crate) fn send_request_logged(&self, msg: &mut WireRequest) -> Result<(), WaytinierError> {
 		wlog!(DebugLevel::Trivial, "wlmm", format!("{msg}"), GREEN, NONE);
 		self.send_request(msg)
 	}
 
-	fn send_request(&self, msg: &mut WireRequest) -> Result<(), WaylandError> {
+	fn send_request(&self, msg: &mut WireRequest) -> Result<(), WaytinierError> {
 		let mut buf: Vec<u8> = vec![];
 		buf.append(&mut Vec::from(msg.sender_id.raw().to_ne_bytes()));
 		buf.append(&mut vec![0, 0, 0, 0]);
@@ -162,7 +162,7 @@ impl MessageManager {
 		Ok(())
 	}
 
-	fn get_socket_data(&self, buf: &mut [u8]) -> Result<(usize, Vec<OwnedFd>), WaylandError> {
+	fn get_socket_data(&self, buf: &mut [u8]) -> Result<(usize, Vec<OwnedFd>), WaytinierError> {
 		let mut iov = [IoSliceMut::new(buf)];
 
 		let mut aux_buf: [u8; 64] = [0; 64];
@@ -183,12 +183,12 @@ impl MessageManager {
 			}
 			Err(er) => match er.kind() {
 				std::io::ErrorKind::WouldBlock => Ok((0, vec![])),
-				_ => Err(WaylandError::Io(er)),
+				_ => Err(WaytinierError::Io(er)),
 			},
 		}
 	}
 
-	pub(crate) fn get_events(&mut self) -> Result<(usize, Vec<OwnedFd>), WaylandError> {
+	pub(crate) fn get_events(&mut self) -> Result<(usize, Vec<OwnedFd>), WaytinierError> {
 		let mut b = [0; 8192];
 		let (len, fds) = self.get_socket_data(&mut b)?;
 		if len == 0 {
@@ -206,7 +206,7 @@ impl MessageManager {
 			let recv_len = byte2 >> 16;
 			// println!("len: {}", recv_len);
 			if recv_len < 8 {
-				return Err(WaylandError::RecvLenBad);
+				return Err(WaytinierError::RecvLenBad);
 			}
 			let opcode = (byte2 & 0x0000ffff) as usize;
 
@@ -298,19 +298,19 @@ impl WireArgument {
 }
 
 pub(crate) trait FromWirePayload: Sized {
-	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError>;
+	fn from_wire(payload: &[u8]) -> Result<Self, WaytinierError>;
 }
 
-fn is_empty(payload: &[u8]) -> Result<(), WaylandError> {
+fn is_empty(payload: &[u8]) -> Result<(), WaytinierError> {
 	if payload.is_empty() {
-		Err(WaylandError::EmptyFromWirePayload)
+		Err(WaytinierError::EmptyFromWirePayload)
 	} else {
 		Ok(())
 	}
 }
 
 impl FromWirePayload for String {
-	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaytinierError> {
 		is_empty(payload)?;
 		let p = payload;
 		let len = u32::from_wire(payload)? as usize;
@@ -325,7 +325,7 @@ impl FromWirePayload for String {
 }
 
 impl FromWirePayload for u16 {
-	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaytinierError> {
 		is_empty(payload)?;
 		let p = payload;
 		Ok(u16::from_ne_bytes([p[0], p[1]]))
@@ -333,7 +333,7 @@ impl FromWirePayload for u16 {
 }
 
 impl FromWirePayload for u32 {
-	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaytinierError> {
 		is_empty(payload)?;
 		let p = payload;
 		Ok(u32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
@@ -341,7 +341,7 @@ impl FromWirePayload for u32 {
 }
 
 impl FromWirePayload for u64 {
-	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaytinierError> {
 		is_empty(payload)?;
 		let p = payload;
 		Ok(u64::from_ne_bytes([p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]]))
@@ -349,7 +349,7 @@ impl FromWirePayload for u64 {
 }
 
 impl FromWirePayload for i32 {
-	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaytinierError> {
 		is_empty(payload)?;
 		let p = payload;
 		Ok(i32::from_ne_bytes([p[0], p[1], p[2], p[3]]))
@@ -357,14 +357,14 @@ impl FromWirePayload for i32 {
 }
 
 impl FromWirePayload for Vec<u32> {
-	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaytinierError> {
 		is_empty(payload)?;
 		payload[4..].chunks(4).map(u32::from_wire).collect()
 	}
 }
 
 impl FromWirePayload for Vec<u16> {
-	fn from_wire(payload: &[u8]) -> Result<Self, WaylandError> {
+	fn from_wire(payload: &[u8]) -> Result<Self, WaytinierError> {
 		is_empty(payload)?;
 		payload[4..].chunks(2).map(u16::from_wire).collect()
 	}
