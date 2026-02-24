@@ -3,7 +3,7 @@ use std::os::fd::OwnedFd;
 use crate::{
 	DebugLevel, Rl, handle_log, qpush, rl,
 	wayland::{
-		God, Id, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, Raw, WaylandObject, WaylandObjectKind, WaytinierError,
 		surface::Surface,
 		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 		xdg_shell::wm_base::XdgWmBase,
@@ -61,15 +61,15 @@ impl XdgSurface {
 		}
 	}
 
-	fn wl_destroy(&self) -> WireRequest {
-		WireRequest {
-			sender_id: self.id,
-			kind: self.kind(),
-			opcode: OpCode(0),
-			opname: "destroy",
-			args: vec![],
-		}
-	}
+	// fn wl_destroy(&self) -> WireRequest {
+	// 	WireRequest {
+	// 		sender_id: self.id,
+	// 		kind: self.kind(),
+	// 		opcode: OpCode(0),
+	// 		opname: "destroy",
+	// 		args: vec![],
+	// 	}
+	// }
 }
 
 impl WaylandObject for XdgSurface {

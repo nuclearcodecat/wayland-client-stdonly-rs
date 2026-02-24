@@ -11,9 +11,14 @@ use crate::{
 	},
 	dbug, init_logger, rl, wait_for_sync,
 	wayland::{
-		Boxed, God, IdentManager, PixelFormat, WaytinierError, buffer::BufferBackend,
-		compositor::Compositor, display::Display, registry::Registry, shm::ShmBackend,
-		surface::Surface, wire::MessageManager,
+		God, IdentManager, PixelFormat, WaytinierError,
+		buffer::{BufferAccessor, BufferBackend},
+		compositor::Compositor,
+		display::Display,
+		registry::Registry,
+		shm::ShmBackend,
+		surface::Surface,
+		wire::MessageManager,
 	},
 };
 
@@ -86,7 +91,7 @@ impl App {
 				if surf.attached_buf.is_none() {
 					dbug!("no buf");
 					drop(surf);
-					let buf = window.backend.borrow_mut().as_mut().make_buffer(
+					let buf = window.backend.borrow_mut().make_buffer(
 						&mut self.god,
 						surf_w,
 						surf_h,
@@ -108,11 +113,17 @@ impl App {
 					*frame = frame.wrapping_add(1);
 
 					unsafe {
-						let slice = &mut *surf.get_buffer_slice()?;
+						// should be created above
+						let accessor = surf.attached_buf.as_ref().unwrap();
+						let mut accessor = accessor.borrow_mut();
+						let mut accessor = accessor
+							.accessor
+							.as_mut()
+							.ok_or(WaytinierError::ExpectedSomeValue("buffer accessor"))?;
 						let buf = surf.attached_buf.clone().ok_or("no buffer");
 
 						let ss = Snapshot {
-							buf: slice,
+							buf: &mut accessor,
 							w: surf_w,
 							h: surf_h,
 							pf: surf.pf,
@@ -137,7 +148,7 @@ impl App {
 }
 
 pub struct Snapshot<'a> {
-	pub buf: &'a mut [u8],
+	pub buf: &'a mut BufferAccessor,
 	pub w: u32,
 	pub h: u32,
 	pub pf: PixelFormat,

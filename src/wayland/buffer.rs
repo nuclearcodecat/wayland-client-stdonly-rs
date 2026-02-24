@@ -1,35 +1,58 @@
-use std::rc::Rc;
+use std::{os::fd::OwnedFd, rc::Rc};
 
 use crate::{
-	DebugLevel, Rl, Wl, handle_log, rl,
+	DebugLevel, DmaBackend, Rl, ShmBackend, Wl, handle_log, rl,
 	wayland::{
-		God, Id, IdentManager, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
+		God, Id, IdentManager, OpCode, Raw, WaylandObject, WaylandObjectKind, WaytinierError,
 		registry::Registry,
 		surface::Surface,
 		wire::{Action, MessageManager, WireRequest},
 	},
 };
 
-pub trait BufferBackend {
-	fn make_buffer(
+pub enum BufferBackend {
+	Shm(ShmBackend),
+	Dma(DmaBackend),
+}
+
+impl BufferBackend {
+	pub(crate) fn make_buffer(
 		&mut self,
 		god: &mut God,
 		w: u32,
 		h: u32,
 		surface: &Rl<Surface>,
-		backend: &Rl<Box<dyn BufferBackend>>,
+		backend: &Rl<BufferBackend>,
 		registry: &Rl<Registry>,
-	) -> Result<Rl<Buffer>, WaytinierError>;
+	) -> Result<Rl<Buffer>, WaytinierError> {
+		match self {
+			BufferBackend::Shm(shm_backend) => {
+				shm_backend.make_buffer(god, w, h, surface, backend, registry)
+			}
+			BufferBackend::Dma(dma_backend) => {
+				dma_backend.make_buffer(god, w, h, surface, backend, registry)
+			}
+		}
+	}
 
-	fn resize(
+	pub(crate) fn resize(
 		&mut self,
-		// this stinks
 		wlmm: &mut MessageManager,
 		wlim: &mut IdentManager,
 		buf: &Rl<Buffer>,
 		w: u32,
 		h: u32,
-	) -> Result<(), WaytinierError>;
+	) -> Result<(), WaytinierError> {
+		match self {
+			BufferBackend::Shm(shm_backend) => shm_backend.resize(wlmm, wlim, buf, w, h),
+			BufferBackend::Dma(dma_backend) => dma_backend.resize(wlmm, wlim, buf, w, h),
+		}
+	}
+}
+
+pub enum BufferAccessor {
+	ShmSlice(*mut [u8]),
+	DmaBufFd(OwnedFd),
 }
 
 pub(crate) struct Buffer {
@@ -39,8 +62,8 @@ pub(crate) struct Buffer {
 	pub(crate) h: u32,
 	pub(crate) in_use: bool,
 	pub(crate) master: Wl<Surface>,
-	pub(crate) slice: Option<*mut [u8]>,
-	pub(crate) backend: Rl<Box<dyn BufferBackend>>,
+	pub(crate) backend: Rl<BufferBackend>,
+	pub(crate) accessor: Option<BufferAccessor>,
 }
 
 impl Buffer {
@@ -48,7 +71,7 @@ impl Buffer {
 		id: Id,
 		(offset, width, height): (u32, u32, u32),
 		master: &Rl<Surface>,
-		backend: &Rl<Box<dyn BufferBackend>>,
+		backend: &Rl<BufferBackend>,
 	) -> Rl<Self> {
 		rl!(Self {
 			id,
@@ -57,8 +80,8 @@ impl Buffer {
 			h: height,
 			in_use: false,
 			master: Rc::downgrade(master),
-			slice: None,
 			backend: backend.clone(),
+			accessor: None,
 		})
 	}
 
@@ -66,16 +89,12 @@ impl Buffer {
 		god: &mut God,
 		(offset, width, height): (u32, u32, u32),
 		master: &Rl<Surface>,
-		backend: &Rl<Box<dyn BufferBackend>>,
+		backend: &Rl<BufferBackend>,
 	) -> Result<Rl<Buffer>, WaytinierError> {
 		let buf = Self::new(Id(0), (offset, width, height), master, backend);
 		let id = god.wlim.new_id_registered(buf.clone());
 		buf.borrow_mut().id = id;
 		Ok(buf)
-	}
-
-	pub(crate) fn get_slice(&mut self) -> Result<*mut [u8], WaytinierError> {
-		self.slice.ok_or(WaytinierError::ExpectedSomeValue("no memory slice in buf"))
 	}
 
 	pub(crate) fn wl_destroy(&self) -> WireRequest {

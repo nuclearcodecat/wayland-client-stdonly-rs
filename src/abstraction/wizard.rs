@@ -20,7 +20,7 @@ pub struct TopLevelWindowWizard<'a> {
 	pub(crate) height: Option<u32>,
 	pub(crate) parent: &'a mut App,
 	pub(crate) close_cb: Option<Box<dyn FnMut() -> bool>>,
-	pub(crate) backend: Option<Rl<Box<dyn BufferBackend>>>,
+	pub(crate) backend: Option<Rl<BufferBackend>>,
 	pub(crate) pf: Option<PixelFormat>,
 	pub(crate) xdg_wm_base: Option<Rl<XdgWmBase>>,
 }
@@ -78,7 +78,7 @@ impl<'a> TopLevelWindowWizard<'a> {
 		self
 	}
 
-	pub fn with_backend(mut self, backend: &Rl<Box<dyn BufferBackend>>) -> Self {
+	pub fn with_backend(mut self, backend: &Rl<BufferBackend>) -> Self {
 		self.backend = Some(backend.clone());
 		self
 	}
@@ -91,23 +91,28 @@ impl<'a> TopLevelWindowWizard<'a> {
 		let w = self.width.unwrap_or(800);
 		let h = self.height.unwrap_or(600);
 		let surface = Surface::new_registered_made(god, compositor, w, h, pf);
-		let xdg_wm_base =
+		let _xdg_wm_base =
 			self.xdg_wm_base.unwrap_or(XdgWmBase::new_registered_bound(registry, god)?);
-		let xdg_surface = XdgSurface::new_registered(god, &xdg_wm_base, &surface);
+		let xdg_surface = XdgSurface::new_registered(god, &_xdg_wm_base, &surface);
 		let xdg_toplevel = XdgTopLevel::new_registered_gotten(god, &xdg_surface);
+		if let Some(title) = self.title {
+			xdg_toplevel.borrow_mut().set_title(god, &title);
+		};
+		if let Some(appid) = self.app_id {
+			xdg_toplevel.borrow_mut().set_app_id(god, &appid);
+		};
 		let backend = self.backend.ok_or(WaytinierError::ExpectedSomeValue(
 			"attach a BufferBackend trait object with ::with_backend()",
 		))?;
 		surface.borrow().commit(god);
 		wait_for_sync!(&self.parent.display, &mut god);
 		let tlw = TopLevelWindow {
-			xdg_wm_base,
+			_xdg_wm_base,
+
 			xdg_toplevel,
 			xdg_surface,
 			backend,
 			surface,
-			app_id: self.app_id,
-			title: self.title,
 			close_cb: Box::new(|| true),
 			frame: 0,
 			frame_cb: None,

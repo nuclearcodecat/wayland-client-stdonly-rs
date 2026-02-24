@@ -7,9 +7,9 @@ use std::{
 use libc::{O_CLOEXEC, O_RDWR};
 
 use crate::{
-	App, Rl, dbug, rl,
+	Rl, dbug, rl,
 	wayland::{
-		Boxed, God, Id, IdentManager, WaytinierError,
+		God, Id, IdentManager, WaytinierError,
 		buffer::{Buffer, BufferBackend},
 		dmabuf::{
 			gbm::LibGbm,
@@ -27,20 +27,20 @@ pub struct DmaBackend {
 	pub(crate) rendernode_fd: Option<OwnedFd>,
 }
 
-impl BufferBackend for DmaBackend {
-	fn make_buffer(
+impl DmaBackend {
+	pub(crate) fn make_buffer(
 		&mut self,
 		god: &mut God,
 		w: u32,
 		h: u32,
 		surface: &Rl<Surface>,
-		backend: &Rl<Box<dyn BufferBackend>>,
+		backend: &Rl<BufferBackend>,
 		registry: &Rl<Registry>,
 	) -> Result<Rl<Buffer>, WaytinierError> {
 		dbug!("making buffer object");
 		let dmabuf = DmaBuf::new_registered_bound(god, registry, surface)?;
 		let feedback = DmaFeedback::new_registered_gotten(god, &dmabuf);
-		let feedback = feedback.borrow();
+		let _feedback = feedback.borrow();
 		self.dmabuf = Some(dmabuf);
 
 		// assuming renderD128
@@ -72,26 +72,23 @@ impl BufferBackend for DmaBackend {
 		Ok(Buffer::new(Id(0), (0, 0, 0), surface, backend))
 	}
 
-	fn resize(
+	pub(crate) fn resize(
 		&mut self,
-		wlmm: &mut MessageManager,
-		wlim: &mut IdentManager,
-		buf: &Rl<Buffer>,
-		w: u32,
-		h: u32,
+		_wlmm: &mut MessageManager,
+		_wlim: &mut IdentManager,
+		_buf: &Rl<Buffer>,
+		_w: u32,
+		_h: u32,
 	) -> Result<(), WaytinierError> {
 		todo!()
 	}
-}
 
-impl DmaBackend {
 	#[allow(clippy::new_ret_no_self)]
-	pub fn new(app: &mut App) -> Result<Rl<Box<dyn BufferBackend>>, WaytinierError> {
-		Ok(rl!(DmaBackend {
+	pub fn new() -> Result<Rl<BufferBackend>, WaytinierError> {
+		Ok(rl!(BufferBackend::Dma(DmaBackend {
 			dmabuf: None,
 			libgbm: LibGbm::new_loaded()?,
 			rendernode_fd: None,
-		}
-		.boxed() as Box<dyn BufferBackend>))
+		})))
 	}
 }

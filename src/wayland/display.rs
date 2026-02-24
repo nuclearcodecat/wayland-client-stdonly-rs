@@ -1,11 +1,10 @@
-use std::{error::Error, os::fd::OwnedFd};
+use std::os::fd::OwnedFd;
 
 use crate::{
 	Rl, rl,
 	wayland::{
-		God, Id, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, Raw, WaylandObject, WaylandObjectKind, WaytinierError,
 		callback::Callback,
-		registry::Registry,
 		wire::{Action, FromWirePayload, RecvError, WireArgument, WireRequest},
 	},
 };
@@ -40,14 +39,6 @@ impl Display {
 
 	pub(crate) fn get_registry(&self, god: &mut God, id: Id) {
 		god.wlmm.queue_request(self.wl_get_registry(id));
-	}
-
-	pub(crate) fn make_registry(&mut self, god: &mut God) -> Result<Rl<Registry>, Box<dyn Error>> {
-		let reg = Registry::new(Id(0));
-		let id = god.wlim.new_id_registered(reg.clone());
-		reg.borrow_mut().id = id;
-		self.get_registry(god, id);
-		Ok(reg)
 	}
 
 	pub(crate) fn wl_sync(&self, id: Id) -> WireRequest {

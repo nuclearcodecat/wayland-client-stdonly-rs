@@ -15,7 +15,6 @@ pub(crate) struct LibGbmFunctions {
 }
 
 pub(crate) struct LibGbm {
-	pub(crate) lib: libloading::Library,
 	pub(crate) fns: LibGbmFunctions,
 }
 
@@ -29,7 +28,6 @@ impl LibGbm {
 				gbm_bo_destroy: unsafe { *lib.get("gbm_bo_destroy")? },
 				gbm_device_destroy: unsafe { *lib.get("gbm_device_destroy")? },
 			},
-			lib,
 		};
 		dbug!("loaded!!");
 		Ok(new)

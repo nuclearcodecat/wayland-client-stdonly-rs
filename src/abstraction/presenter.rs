@@ -36,11 +36,9 @@ pub trait PresenterObject {
 pub struct TopLevelWindow {
 	pub(crate) xdg_toplevel: Rl<XdgTopLevel>,
 	pub(crate) xdg_surface: Rl<XdgSurface>,
-	pub(crate) xdg_wm_base: Rl<XdgWmBase>,
-	pub(crate) backend: Rl<Box<dyn BufferBackend>>,
+	pub(crate) _xdg_wm_base: Rl<XdgWmBase>,
+	pub(crate) backend: Rl<BufferBackend>,
 	pub(crate) surface: Rl<Surface>,
-	pub(crate) app_id: Option<String>,
-	pub(crate) title: Option<String>,
 	pub(crate) close_cb: Box<dyn FnMut() -> bool>,
 	pub(crate) frame: usize,
 	pub(crate) frame_cb: Option<Rl<Callback>>,

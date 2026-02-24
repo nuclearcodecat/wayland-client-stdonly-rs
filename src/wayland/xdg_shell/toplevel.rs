@@ -3,7 +3,7 @@ use std::os::fd::OwnedFd;
 use crate::{
 	DebugLevel, Rl, handle_log, rl,
 	wayland::{
-		God, Id, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, Raw, WaylandObject, WaylandObjectKind, WaytinierError,
 		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 		xdg_shell::surface::XdgSurface,
 	},
@@ -11,8 +11,6 @@ use crate::{
 
 pub struct XdgTopLevel {
 	pub(crate) id: Id,
-	pub(crate) title: Option<String>,
-	pub(crate) appid: Option<String>,
 	pub(crate) close_requested: bool,
 	pub(crate) parent: Rl<XdgSurface>,
 }
@@ -43,8 +41,6 @@ impl XdgTopLevel {
 	pub(crate) fn new(id: Id, parent: Rl<XdgSurface>) -> Rl<Self> {
 		rl!(Self {
 			id,
-			title: None,
-			appid: None,
 			close_requested: false,
 			parent,
 		})
@@ -74,7 +70,7 @@ impl XdgTopLevel {
 	}
 
 	pub(crate) fn set_app_id(&mut self, god: &mut God, id: &str) {
-		self.appid = Some(id.to_string());
+		// self.appid = Some(id.to_string());
 		god.wlmm.queue_request(self.wl_set_app_id(id));
 	}
 
@@ -89,19 +85,19 @@ impl XdgTopLevel {
 	}
 
 	pub(crate) fn set_title(&mut self, god: &mut God, id: &str) {
-		self.title = Some(id.to_string());
+		// self.title = Some(id.to_string());
 		god.wlmm.queue_request(self.wl_set_title(id))
 	}
 
-	fn wl_destroy(&self) -> WireRequest {
-		WireRequest {
-			sender_id: self.id,
-			kind: self.kind(),
-			opcode: OpCode(0),
-			opname: "destroy",
-			args: vec![],
-		}
-	}
+	// fn wl_destroy(&self) -> WireRequest {
+	// 	WireRequest {
+	// 		sender_id: self.id,
+	// 		kind: self.kind(),
+	// 		opcode: OpCode(0),
+	// 		opname: "destroy",
+	// 		args: vec![],
+	// 	}
+	// }
 }
 
 #[allow(dead_code)]

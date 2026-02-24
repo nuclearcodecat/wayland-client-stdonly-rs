@@ -13,7 +13,7 @@ use std::{
 
 use crate::{
 	CYAN, DebugLevel, GREEN, NONE, RED, Rl,
-	wayland::{Boxed, Id, OpCode, Raw, WaytinierError, WaylandObjectKind, surface::Surface},
+	wayland::{Id, OpCode, Raw, WaylandObjectKind, WaytinierError, surface::Surface},
 	wlog,
 };
 
@@ -31,6 +31,7 @@ pub(crate) struct WireEventRaw {
 	pub(crate) payload: Vec<u8>,
 }
 
+#[allow(unused)]
 #[derive(Debug)]
 pub(crate) enum WireArgument {
 	Int(i32),
@@ -235,21 +236,6 @@ impl MessageManager {
 }
 
 impl WireArgument {
-	// size in bytes
-	pub(crate) fn size(&self) -> usize {
-		match self {
-			WireArgument::Int(_) => 4,
-			WireArgument::UnInt(_) => 4,
-			WireArgument::FixedPrecision(_) => 4,
-			WireArgument::String(x) => x.len(),
-			WireArgument::Obj(_) => 4,
-			WireArgument::NewId(_) => 4,
-			WireArgument::NewIdSpecific(x, _, _) => x.len() + 8,
-			WireArgument::Arr(x) => x.len(),
-			WireArgument::FileDescriptor(_) => 4,
-		}
-	}
-
 	pub(crate) fn as_vec_u8(&self) -> Vec<u8> {
 		match self {
 			WireArgument::Int(x) => Vec::from(x.to_ne_bytes()),

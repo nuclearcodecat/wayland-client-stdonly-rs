@@ -3,7 +3,7 @@ use std::os::fd::OwnedFd;
 use crate::{
 	Rl, rl,
 	wayland::{
-		God, Id, OpCode, PixelFormat, WaytinierError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, PixelFormat, WaylandObject, WaylandObjectKind, WaytinierError,
 		buffer::Buffer,
 		callback::Callback,
 		compositor::Compositor,
@@ -105,15 +105,6 @@ impl Surface {
 		let cb = Callback::new_registered(god);
 		god.wlmm.queue_request(self.wl_frame(cb.borrow().id));
 		Ok(cb)
-	}
-
-	pub(crate) fn get_buffer_slice(&self) -> Result<*mut [u8], WaytinierError> {
-		if let Some(buf) = &self.attached_buf {
-			let mut buf = buf.borrow_mut();
-			buf.get_slice()
-		} else {
-			Err(WaytinierError::ExpectedSomeValue("no buffer attached to surface"))
-		}
 	}
 
 	pub fn wl_damage_buffer(&self, x: i32, y: i32, w: i32, h: i32) -> WireRequest {

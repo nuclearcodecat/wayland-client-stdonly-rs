@@ -15,9 +15,9 @@ use crate::{
 	abstraction::app::App,
 	dbug, handle_log, qpush, rl,
 	wayland::{
-		Boxed, ExpectRc, God, Id, IdentManager, OpCode, PixelFormat, Raw, WaylandObject,
+		ExpectRc, God, Id, IdentManager, OpCode, PixelFormat, Raw, WaylandObject,
 		WaylandObjectKind, WaytinierError,
-		buffer::{Buffer, BufferBackend},
+		buffer::{Buffer, BufferAccessor, BufferBackend},
 		registry::Registry,
 		surface::Surface,
 		wire::{Action, FromWirePayload, MessageManager, WireArgument, WireRequest},
@@ -26,18 +26,17 @@ use crate::{
 };
 
 pub struct ShmBackend {
-	pub(crate) shm: Rl<SharedMemory>,
 	pub(crate) pool: Rl<SharedMemoryPool>,
 }
 
-impl BufferBackend for ShmBackend {
-	fn make_buffer(
+impl ShmBackend {
+	pub(crate) fn make_buffer(
 		&mut self,
 		god: &mut God,
 		w: u32,
 		h: u32,
 		surface: &Rl<Surface>,
-		backend: &Rl<Box<dyn BufferBackend>>,
+		backend: &Rl<BufferBackend>,
 		_registry: &Rl<Registry>,
 	) -> Result<Rl<Buffer>, WaytinierError> {
 		let mut pool = self.pool.borrow_mut();
@@ -45,7 +44,7 @@ impl BufferBackend for ShmBackend {
 		Ok(buffer)
 	}
 
-	fn resize(
+	pub(crate) fn resize(
 		&mut self,
 		wlmm: &mut MessageManager,
 		wlim: &mut IdentManager,
@@ -63,7 +62,7 @@ impl BufferBackend for ShmBackend {
 		let mut pool = self.pool.borrow_mut();
 		let format = buffer.master.upgrade().to_wl_err()?.borrow().pf;
 		let shm_actions = pool.get_resize_actions_if_larger((w * h * format.width()) as i32)?;
-		buffer.slice = pool.slice;
+		buffer.accessor = pool.slice.map(|s| BufferAccessor::ShmSlice(unsafe { &mut *s }));
 		wlmm.q.extend(shm_actions);
 
 		buffer.id = id;
@@ -81,18 +80,14 @@ impl BufferBackend for ShmBackend {
 
 		Ok(())
 	}
-}
 
-impl ShmBackend {
 	#[allow(clippy::new_ret_no_self)]
-	pub fn new(app: &mut App) -> Result<Rl<Box<dyn BufferBackend>>, WaytinierError> {
+	pub fn new(app: &mut App) -> Result<Rl<BufferBackend>, WaytinierError> {
 		let shm = SharedMemory::new_registered_bound(&mut app.god, &app.registry)?;
 		let pool = SharedMemoryPool::new_registered_allocated(&mut app.god, &shm, 8)?;
-		Ok(rl!(ShmBackend {
-			shm,
+		Ok(rl!(BufferBackend::Shm(ShmBackend {
 			pool,
-		}
-		.boxed() as Box<dyn BufferBackend>))
+		})))
 	}
 }
 
@@ -240,15 +235,15 @@ impl SharedMemoryPool {
 		}
 	}
 
-	fn wl_destroy(&self) -> WireRequest {
-		WireRequest {
-			sender_id: self.id,
-			kind: self.kind(),
-			opcode: OpCode(1),
-			opname: "destroy",
-			args: vec![],
-		}
-	}
+	// fn wl_destroy(&self) -> WireRequest {
+	// 	WireRequest {
+	// 		sender_id: self.id,
+	// 		kind: self.kind(),
+	// 		opcode: OpCode(1),
+	// 		opname: "destroy",
+	// 		args: vec![],
+	// 	}
+	// }
 
 	fn wl_resize(&self) -> WireRequest {
 		WireRequest {
@@ -341,12 +336,12 @@ impl SharedMemoryPool {
 		god: &mut God,
 		(offset, w, h): (u32, u32, u32),
 		master: &Rl<Surface>,
-		backend: &Rl<Box<dyn BufferBackend>>,
+		backend: &Rl<BufferBackend>,
 	) -> Result<Rl<Buffer>, WaytinierError> {
 		let surface = master.borrow();
 		let buf = Buffer::new_registered(god, (offset, w, h), master, backend)?;
 
-		buf.borrow_mut().slice = self.slice;
+		buf.borrow_mut().accessor = self.slice.map(|s| BufferAccessor::ShmSlice(s));
 
 		god.wlmm.queue_request(self.wl_create_buffer(
 			buf.borrow().id,

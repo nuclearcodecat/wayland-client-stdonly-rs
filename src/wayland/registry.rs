@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt, os::fd::OwnedFd};
 use crate::{
 	NONE, Rl, WHITE, handle_log, rl,
 	wayland::{
-		DebugLevel, God, Id, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
+		DebugLevel, God, Id, OpCode, Raw, WaylandObject, WaylandObjectKind, WaytinierError,
 		display::Display,
 		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 	},
@@ -99,10 +99,6 @@ impl Registry {
 		);
 		god.wlmm.queue_request(self.wl_bind(id, global_id, kind.as_str(), version));
 		Ok(())
-	}
-
-	pub(crate) fn does_implement(&self, query: &str) -> Option<u32> {
-		self.inner.iter().find(|(_, v)| v.interface == query).map(|(_, v)| v.version)
 	}
 }
 

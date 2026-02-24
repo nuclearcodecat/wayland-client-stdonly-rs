@@ -24,7 +24,7 @@ pub(crate) mod wire;
 pub(crate) mod xdg_shell;
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct OpCode(pub(crate) u32);
+pub struct OpCode(pub(crate) u32);
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) struct Id(pub(crate) u32);
 
@@ -170,7 +170,7 @@ impl Display for WaytinierError {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum WaylandObjectKind {
+pub enum WaylandObjectKind {
 	Display,
 	Registry,
 	Compositor,
@@ -294,13 +294,13 @@ impl Drop for IdentManager {
 	}
 }
 
-pub(crate) trait Boxed: Sized {
-	fn boxed(self) -> Box<Self> {
-		Box::new(self)
-	}
-}
+// pub(crate) trait Boxed: Sized {
+// 	fn boxed(self) -> Box<Self> {
+// 		Box::new(self)
+// 	}
+// }
 
-impl<T> Boxed for T {}
+// impl<T> Boxed for T {}
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub enum PixelFormat {

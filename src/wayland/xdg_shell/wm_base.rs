@@ -3,13 +3,13 @@ use std::os::fd::OwnedFd;
 use crate::{
 	Rl, qpush, rl,
 	wayland::{
-		God, Id, OpCode, Raw, WaytinierError, WaylandObject, WaylandObjectKind,
+		God, Id, OpCode, Raw, WaylandObject, WaylandObjectKind, WaytinierError,
 		registry::Registry,
 		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 	},
 };
 
-pub(crate) struct XdgWmBase {
+pub struct XdgWmBase {
 	pub(crate) id: Id,
 }
 
@@ -28,21 +28,21 @@ impl XdgWmBase {
 		Ok(obj)
 	}
 
-	pub fn wl_destroy(&self) -> WireRequest {
-		WireRequest {
-			sender_id: self.id,
-			kind: self.kind(),
-			opcode: OpCode(0),
-			opname: "destroy",
-			args: vec![],
-		}
-	}
+	// fn wl_destroy(&self) -> WireRequest {
+	// 	WireRequest {
+	// 		sender_id: self.id,
+	// 		kind: self.kind(),
+	// 		opcode: OpCode(0),
+	// 		opname: "destroy",
+	// 		args: vec![],
+	// 	}
+	// }
 
-	pub(crate) fn destroy(&self, god: &mut God) {
-		god.wlmm.queue_request(self.wl_destroy())
-	}
+	// pub(crate) fn destroy(&self, god: &mut God) {
+	// 	god.wlmm.queue_request(self.wl_destroy())
+	// }
 
-	pub fn wl_pong(&self, serial: u32) -> WireRequest {
+	fn wl_pong(&self, serial: u32) -> WireRequest {
 		WireRequest {
 			sender_id: self.id,
 			kind: self.kind(),
