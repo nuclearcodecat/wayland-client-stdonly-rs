@@ -62,7 +62,7 @@ impl ShmBackend {
 		let mut pool = self.pool.borrow_mut();
 		let format = buffer.master.upgrade().to_wl_err()?.borrow().pf;
 		let shm_actions = pool.get_resize_actions_if_larger((w * h * format.width()) as i32)?;
-		buffer.accessor = pool.slice.map(|s| BufferAccessor::ShmSlice(unsafe { &mut *s }));
+		buffer.accessor = pool.slice.map(|s| BufferAccessor::ShmSlice(s));
 		wlmm.q.extend(shm_actions);
 
 		buffer.id = id;
@@ -339,9 +339,15 @@ impl SharedMemoryPool {
 		backend: &Rl<BufferBackend>,
 	) -> Result<Rl<Buffer>, WaytinierError> {
 		let surface = master.borrow();
-		let buf = Buffer::new_registered(god, (offset, w, h), master, backend)?;
-
-		buf.borrow_mut().accessor = self.slice.map(|s| BufferAccessor::ShmSlice(s));
+		let accessor = self.slice.map(|s| BufferAccessor::ShmSlice(s));
+		let buf = Buffer::new_registered(
+			god,
+			(offset, w, h),
+			master,
+			backend,
+			accessor,
+			Box::new(|| {}),
+		)?;
 
 		god.wlmm.queue_request(self.wl_create_buffer(
 			buf.borrow().id,

@@ -184,6 +184,7 @@ pub enum WaylandObjectKind {
 	SharedMemoryPool,
 	DmaFeedback,
 	Callback,
+	DmaParams,
 }
 
 impl Display for WaylandObjectKind {
@@ -208,6 +209,7 @@ impl WaylandObjectKind {
 			WaylandObjectKind::SharedMemoryPool => "wl_shm_poll",
 			WaylandObjectKind::DmaFeedback => "zwp_linux_dmabuf_feedback_v1",
 			WaylandObjectKind::Callback => "wl_callback",
+			WaylandObjectKind::DmaParams => "zwp_linux_buffer_params_v1",
 		}
 	}
 }

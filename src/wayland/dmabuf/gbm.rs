@@ -12,6 +12,7 @@ pub(crate) struct LibGbmFunctions {
 	pub(crate) gbm_bo_create: fn(*mut GbmDevice, u32, u32, u32, u32) -> *mut GbmBuffer,
 	pub(crate) gbm_bo_destroy: fn(*mut GbmBuffer),
 	pub(crate) gbm_device_destroy: fn(*mut GbmDevice),
+	pub(crate) gbm_bo_get_fd: fn(*mut GbmBuffer) -> RawFd,
 }
 
 pub(crate) struct LibGbm {
@@ -27,6 +28,7 @@ impl LibGbm {
 				gbm_bo_create: unsafe { *lib.get("gbm_bo_create")? },
 				gbm_bo_destroy: unsafe { *lib.get("gbm_bo_destroy")? },
 				gbm_device_destroy: unsafe { *lib.get("gbm_device_destroy")? },
+				gbm_bo_get_fd: unsafe { *lib.get("gbm_bo_get_fd")? },
 			},
 		};
 		dbug!("loaded!!");

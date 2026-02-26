@@ -278,3 +278,24 @@ impl DmaFeedback {
 pub(crate) enum TrancheFlags {
 	Scanout = 1 << 0,
 }
+
+pub(crate) struct DmaParams {
+	pub(crate) id: Id,
+}
+
+impl WaylandObject for DmaParams {
+	fn handle(
+		&mut self,
+		_payload: &[u8],
+		_opcode: OpCode,
+		_fds: &[OwnedFd],
+	) -> Result<Vec<Action>, WaytinierError> {
+		todo!()
+	}
+
+	fn kind(&self) -> WaylandObjectKind {
+		WaylandObjectKind::DmaParams
+	}
+}
+
+impl DmaParams {}

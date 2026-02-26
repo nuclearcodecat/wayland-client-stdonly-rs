@@ -72,6 +72,7 @@ impl Buffer {
 		(offset, width, height): (u32, u32, u32),
 		master: &Rl<Surface>,
 		backend: &Rl<BufferBackend>,
+		accessor: Option<BufferAccessor>,
 	) -> Rl<Self> {
 		rl!(Self {
 			id,
@@ -81,7 +82,7 @@ impl Buffer {
 			in_use: false,
 			master: Rc::downgrade(master),
 			backend: backend.clone(),
-			accessor: None,
+			accessor,
 		})
 	}
 
@@ -90,8 +91,9 @@ impl Buffer {
 		(offset, width, height): (u32, u32, u32),
 		master: &Rl<Surface>,
 		backend: &Rl<BufferBackend>,
+		accessor: Option<BufferAccessor>,
 	) -> Result<Rl<Buffer>, WaytinierError> {
-		let buf = Self::new(Id(0), (offset, width, height), master, backend);
+		let buf = Self::new(Id(0), (offset, width, height), master, backend, accessor);
 		let id = god.wlim.new_id_registered(buf.clone());
 		buf.borrow_mut().id = id;
 		Ok(buf)
