@@ -15,12 +15,12 @@ use crate::{
 	abstraction::app::App,
 	dbug, handle_log, qpush, rl,
 	wayland::{
-		ExpectRc, God, Id, IdentManager, OpCode, PixelFormat, Raw, WaylandObject,
-		WaylandObjectKind, WaytinierError,
+		ExpectRc, God, Id, OpCode, PixelFormat, Raw, WaylandObject, WaylandObjectKind,
+		WaytinierError,
 		buffer::{Buffer, BufferAccessor, BufferBackend},
 		registry::Registry,
 		surface::Surface,
-		wire::{Action, FromWirePayload, MessageManager, WireArgument, WireRequest},
+		wire::{Action, FromWirePayload, WireArgument, WireRequest},
 	},
 	wlog,
 };
@@ -40,21 +40,20 @@ impl ShmBackend {
 		_registry: &Rl<Registry>,
 	) -> Result<Rl<Buffer>, WaytinierError> {
 		let mut pool = self.pool.borrow_mut();
-		let buffer = pool.make_buffer(god, (0, w, h), surface, backend)?;
+		let buffer = pool.make_buffer(god, (w, h), surface, backend)?;
 		Ok(buffer)
 	}
 
 	pub(crate) fn resize(
 		&mut self,
-		wlmm: &mut MessageManager,
-		wlim: &mut IdentManager,
+		god: &mut God,
 		buf: &Rl<Buffer>,
 		w: u32,
 		h: u32,
 	) -> Result<(), WaytinierError> {
-		let id = wlim.new_id_registered(buf.clone());
+		let id = god.wlim.new_id_registered(buf.clone());
 		let mut buffer = buf.borrow_mut();
-		wlmm.queue_request(buffer.wl_destroy());
+		god.wlmm.queue_request(buffer.wl_destroy());
 
 		buffer.w = w;
 		buffer.h = h;
@@ -63,11 +62,11 @@ impl ShmBackend {
 		let format = buffer.master.upgrade().to_wl_err()?.borrow().pf;
 		let shm_actions = pool.get_resize_actions_if_larger((w * h * format.width()) as i32)?;
 		buffer.accessor = pool.slice.map(|s| BufferAccessor::ShmSlice(s));
-		wlmm.q.extend(shm_actions);
+		god.wlmm.q.extend(shm_actions);
 
 		buffer.id = id;
 
-		wlmm.queue_request(pool.wl_create_buffer(
+		god.wlmm.queue_request(pool.wl_create_buffer(
 			buffer.id,
 			(
 				buffer.offset as i32,
@@ -334,24 +333,17 @@ impl SharedMemoryPool {
 	pub(crate) fn make_buffer(
 		&mut self,
 		god: &mut God,
-		(offset, w, h): (u32, u32, u32),
+		(w, h): (u32, u32),
 		master: &Rl<Surface>,
 		backend: &Rl<BufferBackend>,
 	) -> Result<Rl<Buffer>, WaytinierError> {
 		let surface = master.borrow();
 		let accessor = self.slice.map(|s| BufferAccessor::ShmSlice(s));
-		let buf = Buffer::new_registered(
-			god,
-			(offset, w, h),
-			master,
-			backend,
-			accessor,
-			Box::new(|| {}),
-		)?;
+		let buf = Buffer::new_registered(god, (0, w, h), master, backend, accessor)?;
 
 		god.wlmm.queue_request(self.wl_create_buffer(
 			buf.borrow().id,
-			(offset as i32, w as i32, h as i32, (w * surface.pf.width()) as i32),
+			(0, w as i32, h as i32, (w * surface.pf.width()) as i32),
 			surface.pf,
 		));
 		Ok(buf)

@@ -1,5 +1,5 @@
 use crate::{
-	Rl,
+	Rl, ShmBackend,
 	abstraction::{
 		app::App,
 		presenter::{PresenterObject, TopLevelWindow},
@@ -84,7 +84,7 @@ impl<'a> TopLevelWindowWizard<'a> {
 	}
 
 	pub fn spawn(self) -> Result<Box<dyn PresenterObject>, WaytinierError> {
-		let mut god = &mut self.parent.god;
+		let god = &mut self.parent.god;
 		let registry = &self.parent.registry;
 		let compositor = &self.parent.compositor;
 		let pf = self.pf.unwrap_or_default();
@@ -101,9 +101,11 @@ impl<'a> TopLevelWindowWizard<'a> {
 		if let Some(appid) = self.app_id {
 			xdg_toplevel.borrow_mut().set_app_id(god, &appid);
 		};
-		let backend = self.backend.ok_or(WaytinierError::ExpectedSomeValue(
-			"attach a BufferBackend trait object with ::with_backend()",
-		))?;
+		let backend = match self.backend {
+			Some(b) => b,
+			None => ShmBackend::new(self.parent)?,
+		};
+		let mut god = &mut self.parent.god;
 		surface.borrow().commit(god);
 		wait_for_sync!(&self.parent.display, &mut god);
 		let tlw = TopLevelWindow {

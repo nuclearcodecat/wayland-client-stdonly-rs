@@ -1,5 +1,6 @@
 use std::{
-	os::fd::{AsRawFd, OwnedFd},
+	collections::HashMap,
+	os::fd::{AsRawFd, OwnedFd, RawFd},
 	ptr::null_mut,
 	rc::Rc,
 };
@@ -7,7 +8,7 @@ use std::{
 use libc::{MAP_FAILED, MAP_PRIVATE, PROT_READ};
 
 use crate::{
-	DebugLevel, PixelFormat, Rl, Wl, rl,
+	DebugLevel, PixelFormat, Rl, Wl, handle_log, rl,
 	wayland::{
 		ExpectRc, God, Id, OpCode, Raw, WaylandObject, WaylandObjectKind, WaytinierError,
 		registry::Registry,
@@ -18,9 +19,9 @@ use crate::{
 
 pub(crate) struct DmaBuf {
 	pub(crate) id: Id,
-	pub(crate) formats: Vec<u32>,
-	pub(crate) modifiers: Vec<u32>,
-	pub(crate) surface: Wl<Surface>,
+	// format: modifier
+	pub(crate) formats: HashMap<u32, Option<u64>>,
+	pub(crate) surface: Rl<Surface>,
 }
 
 pub(crate) struct DmaFeedback {
@@ -41,11 +42,17 @@ impl WaylandObject for DmaBuf {
 	) -> Result<Vec<Action>, WaytinierError> {
 		let mut pending = vec![];
 		match opcode.raw() {
+			// format
 			0 => {
 				let format = u32::from_wire(payload)?;
 				match PixelFormat::from_u32(format) {
-					Ok(_) => {
-						self.formats.push(format);
+					Ok(f) => {
+						self.formats.insert(format, None);
+						pending.push(Action::Trace(
+							DebugLevel::Trivial,
+							self.kind_str(),
+							format!("found format for dmabuf: 0x{:08x} ({:?})", format, f),
+						));
 					}
 					Err(_) => {
 						pending.push(Action::Trace(
@@ -55,20 +62,6 @@ impl WaylandObject for DmaBuf {
 						));
 					}
 				};
-				pending.push(Action::Trace(
-					DebugLevel::Trivial,
-					self.kind_str(),
-					format!("found format for dmabuf: 0x{:08x}", format),
-				));
-			}
-			1 => {
-				let modifier = u32::from_wire(payload)?;
-				self.modifiers.push(modifier);
-				pending.push(Action::Trace(
-					DebugLevel::Trivial,
-					self.kind_str(),
-					format!("found modifier for dmabuf: {modifier}"),
-				));
 			}
 			_ => return Err(WaytinierError::InvalidOpCode(opcode, self.kind())),
 		}
@@ -84,9 +77,8 @@ impl DmaBuf {
 	pub(crate) fn new(id: Id, surface: &Rl<Surface>) -> Rl<Self> {
 		rl!(Self {
 			id,
-			surface: Rc::downgrade(surface),
-			formats: vec![],
-			modifiers: vec![],
+			surface: surface.clone(),
+			formats: HashMap::new(),
 		})
 	}
 
@@ -107,6 +99,16 @@ impl DmaBuf {
 		let dbuf = dbuf.borrow();
 		registry.borrow_mut().bind(god, dbuf.id, dbuf.kind(), 5)?;
 		Ok(new)
+	}
+
+	fn wl_create_params(&self, new_id: Id) -> WireRequest {
+		WireRequest {
+			sender_id: self.id,
+			kind: self.kind(),
+			opcode: OpCode(1),
+			opname: "create_params",
+			args: vec![WireArgument::NewId(new_id)],
+		}
 	}
 
 	fn wl_get_default_feedback(&self, new_id: Id) -> WireRequest {
@@ -188,20 +190,11 @@ impl WaylandObject for DmaFeedback {
 					self.kind_str(),
 					format!("tranche indices: {:?}", self.format_indices),
 				));
-				let pf = self
-					.parent
-					.upgrade()
-					.to_wl_err()?
-					.borrow()
-					.surface
-					.upgrade()
-					.to_wl_err()?
-					.borrow()
-					.pf;
+				let pf = self.parent.upgrade().to_wl_err()?.borrow().surface.borrow().pf;
 				for ix in &self.format_indices {
 					let entry = self.format_table[*ix as usize];
 					pending.push(Action::Trace(
-						DebugLevel::Verbose,
+						DebugLevel::SuperVerbose,
 						self.kind_str(),
 						format!("tranche format {ix}: {:?}", entry),
 					));
@@ -209,7 +202,7 @@ impl WaylandObject for DmaFeedback {
 						pending.push(Action::Trace(
 							DebugLevel::Important,
 							self.kind_str(),
-							String::from("found desired pixelformat, {}: {:?}"),
+							format!("found desired pixelformat, {}: {:?}", entry.0, pf),
 						));
 					}
 				}
@@ -281,16 +274,31 @@ pub(crate) enum TrancheFlags {
 
 pub(crate) struct DmaParams {
 	pub(crate) id: Id,
+	pub(crate) new_buf_id: Option<Id>,
 }
 
 impl WaylandObject for DmaParams {
 	fn handle(
 		&mut self,
-		_payload: &[u8],
-		_opcode: OpCode,
+		payload: &[u8],
+		opcode: OpCode,
 		_fds: &[OwnedFd],
 	) -> Result<Vec<Action>, WaytinierError> {
-		todo!()
+		let mut pending = vec![];
+		match opcode.raw() {
+			// created
+			0 => {
+				let id = Id(u32::from_wire(payload)?);
+				self.new_buf_id = Some(id);
+				handle_log!(pending, self, DebugLevel::Important, format!("created, {id}"));
+			}
+			// failed
+			1 => {
+				handle_log!(pending, self, DebugLevel::Important, String::from("failed"));
+			}
+			_ => return Err(WaytinierError::InvalidOpCode(opcode, self.kind())),
+		}
+		Ok(pending)
 	}
 
 	fn kind(&self) -> WaylandObjectKind {
@@ -298,4 +306,85 @@ impl WaylandObject for DmaParams {
 	}
 }
 
-impl DmaParams {}
+impl DmaParams {
+	pub(crate) fn new(id: Id) -> Rl<DmaParams> {
+		rl!(DmaParams {
+			id,
+			new_buf_id: None,
+		})
+	}
+
+	pub(crate) fn new_registered(god: &mut God) -> Rl<Self> {
+		let new = Self::new(Id(0));
+		let id = god.wlim.new_id_registered(new.clone());
+		new.borrow_mut().id = id;
+		new
+	}
+
+	pub(crate) fn new_registered_gotten(god: &mut God, dmabuf: &Rl<DmaBuf>) -> Rl<Self> {
+		let new = Self::new_registered(god);
+		god.wlmm.queue_request(dmabuf.borrow().wl_create_params(new.borrow().id));
+		new
+	}
+
+	// todo add some sort of on_destroy to Wlto which will return the reqs
+	fn wl_destroy(&self) -> WireRequest {
+		WireRequest {
+			sender_id: self.id,
+			kind: self.kind(),
+			opcode: OpCode(0),
+			opname: "destroy",
+			args: vec![],
+		}
+	}
+
+	fn wl_add(
+		&self,
+		fd: RawFd,
+		plane_id: u32,
+		offset: u32,
+		stride: u32,
+		modifier_hi: u32,
+		modifier_lo: u32,
+	) -> WireRequest {
+		WireRequest {
+			sender_id: self.id,
+			kind: self.kind(),
+			opcode: OpCode(1),
+			opname: "add",
+			args: vec![
+				WireArgument::FileDescriptor(fd),
+				WireArgument::UnInt(plane_id),
+				WireArgument::UnInt(offset),
+				WireArgument::UnInt(stride),
+				WireArgument::UnInt(modifier_hi),
+				WireArgument::UnInt(modifier_lo),
+			],
+		}
+	}
+
+	pub(crate) fn add_fd(&self, god: &mut God, fd: RawFd, stride: u32, modf: u64) {
+		let mod_hi = (modf >> 32) as u32;
+		let mod_lo = modf as u32;
+		god.wlmm.queue_request(self.wl_add(fd, 0, 0, stride, mod_hi, mod_lo));
+	}
+
+	fn wl_create(&self, w: i32, h: i32, format: u32, flags: u32) -> WireRequest {
+		WireRequest {
+			sender_id: self.id,
+			kind: self.kind(),
+			opcode: OpCode(2),
+			opname: "create",
+			args: vec![
+				WireArgument::Int(w),
+				WireArgument::Int(h),
+				WireArgument::UnInt(format),
+				WireArgument::UnInt(flags),
+			],
+		}
+	}
+
+	pub(crate) fn create(&self, god: &mut God, w: u32, h: u32, format: PixelFormat) {
+		god.wlmm.queue_request(self.wl_create(w as i32, h as i32, format.to_fourcc(), 0))
+	}
+}

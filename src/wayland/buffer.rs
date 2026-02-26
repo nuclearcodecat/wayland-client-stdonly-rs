@@ -3,10 +3,10 @@ use std::{os::fd::OwnedFd, rc::Rc};
 use crate::{
 	DebugLevel, DmaBackend, Rl, ShmBackend, Wl, handle_log, rl,
 	wayland::{
-		God, Id, IdentManager, OpCode, Raw, WaylandObject, WaylandObjectKind, WaytinierError,
+		God, Id, OpCode, Raw, WaylandObject, WaylandObjectKind, WaytinierError,
 		registry::Registry,
 		surface::Surface,
-		wire::{Action, MessageManager, WireRequest},
+		wire::{Action, WireRequest},
 	},
 };
 
@@ -37,15 +37,14 @@ impl BufferBackend {
 
 	pub(crate) fn resize(
 		&mut self,
-		wlmm: &mut MessageManager,
-		wlim: &mut IdentManager,
+		god: &mut God,
 		buf: &Rl<Buffer>,
 		w: u32,
 		h: u32,
 	) -> Result<(), WaytinierError> {
 		match self {
-			BufferBackend::Shm(shm_backend) => shm_backend.resize(wlmm, wlim, buf, w, h),
-			BufferBackend::Dma(dma_backend) => dma_backend.resize(wlmm, wlim, buf, w, h),
+			BufferBackend::Shm(shm_backend) => shm_backend.resize(god, buf, w, h),
+			BufferBackend::Dma(dma_backend) => dma_backend.resize(god, buf, w, h),
 		}
 	}
 }

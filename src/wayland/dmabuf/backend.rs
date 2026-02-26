@@ -7,18 +7,19 @@ use std::{
 use libc::{O_CLOEXEC, O_RDWR};
 
 use crate::{
-	BufferAccessor, Rl, dbug, rl,
+	BufferAccessor, CYAN, DebugLevel, Rl, WHITE, dbug, rl,
 	wayland::{
-		God, IdentManager, WaytinierError,
+		God, WaytinierError,
 		buffer::{Buffer, BufferBackend},
 		dmabuf::{
 			gbm::{GbmBuffer, GbmDevice, LibGbm},
-			objects::{DmaBuf, DmaFeedback},
+			objects::{DmaBuf, DmaFeedback, DmaParams},
 		},
 		registry::Registry,
 		surface::Surface,
-		wire::MessageManager,
+		wire::Action,
 	},
+	wlog,
 };
 
 pub struct DmaBackend {
@@ -42,11 +43,13 @@ impl DmaBackend {
 		backend: &Rl<BufferBackend>,
 		registry: &Rl<Registry>,
 	) -> Result<Rl<Buffer>, WaytinierError> {
-		dbug!("making buffer object");
 		let dmabuf = DmaBuf::new_registered_bound(god, registry, surface)?;
 		let feedback = DmaFeedback::new_registered_gotten(god, &dmabuf);
-		let _feedback = feedback.borrow();
-		self.dmabuf = Some(dmabuf);
+		self.dmabuf = Some(dmabuf.clone());
+
+		while !feedback.borrow().done {
+			god.handle_events()?;
+		}
 
 		// assuming renderD128
 		// feedback.target_device
@@ -69,42 +72,80 @@ impl DmaBackend {
 		}
 		let fd = (self.libgbm.fns.gbm_bo_get_fd)(bo_ptr);
 		dbug!(format!("dmabuf fd: {fd}"));
-		let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 		// i need to call these two \/
 		(self.libgbm.fns.gbm_bo_destroy)(bo_ptr);
 		(self.libgbm.fns.gbm_device_destroy)(dev_ptr);
 
-		dbug!("buffer object made");
+		let params_rc = DmaParams::new_registered_gotten(god, &dmabuf);
+		god.handle_events()?;
+		let stride = w * pf.width();
+		let modf = {
+			let fb = feedback.borrow();
+			fb.format_indices
+				.iter()
+				.map(|ix| fb.format_table[*ix as usize])
+				.find(|(fmt, _)| *fmt == pf.to_fourcc())
+				.map(|(_, modf)| modf)
+		};
 
-		Ok(Buffer::new_registered(
-			god,
-			(0, 0, 0),
-			surface,
-			backend,
-			Some(BufferAccessor::DmaBufFd(fd)),
-		)?)
+		let params = params_rc.borrow();
+		if let Some(modf) = modf {
+			params.add_fd(god, fd, stride, modf);
+			god.wlmm.queue(Action::Trace(
+				DebugLevel::Important,
+				"dma backend",
+				format!("found modifier {modf}"),
+			));
+		} else {
+			return Err(WaytinierError::ExpectedSomeValue("format modifier not present"));
+		}
+
+		params.create(god, w, h, pf);
+		drop(params);
+		loop {
+			if let Some(id) = params_rc.borrow().new_buf_id {
+				let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+				return Ok(Buffer::new(
+					id,
+					(0, 0, 0),
+					surface,
+					backend,
+					Some(BufferAccessor::DmaBufFd(fd)),
+				));
+			} else {
+				god.handle_events()?;
+			}
+		}
 	}
 
 	pub(crate) fn resize(
 		&mut self,
-		wlmm: &mut MessageManager,
-		wlim: &mut IdentManager,
+		god: &mut God,
 		buf: &Rl<Buffer>,
 		w: u32,
 		h: u32,
 	) -> Result<(), WaytinierError> {
-		self.destroy();
+		self.destroy()?;
 		let mut buf_b = buf.borrow_mut();
 		buf_b.w = w;
 		buf_b.h = h;
-		let id = wlim.new_id_registered(buf.clone());
+		let id = god.wlim.new_id_registered(buf.clone());
 		buf_b.id = id;
 		Ok(())
 	}
 
-	pub(crate) fn destroy(&mut self) {
-		(self.libgbm.fns.gbm_bo_destroy)(self.bo_ptr.unwrap());
-		(self.libgbm.fns.gbm_device_destroy)(self.dev_ptr.unwrap());
+	pub(crate) fn destroy(&self) -> Result<(), WaytinierError> {
+		let dev_ptr = match self.dev_ptr {
+			Some(p) => p,
+			None => return Err(WaytinierError::ExpectedSomeValue("buffer object pointer")),
+		};
+		let bo_ptr = match self.bo_ptr {
+			Some(p) => p,
+			None => return Err(WaytinierError::ExpectedSomeValue("buffer object pointer")),
+		};
+		(self.libgbm.fns.gbm_bo_destroy)(bo_ptr);
+		(self.libgbm.fns.gbm_device_destroy)(dev_ptr);
+		Ok(())
 	}
 
 	#[allow(clippy::new_ret_no_self)]
@@ -116,5 +157,20 @@ impl DmaBackend {
 			bo_ptr: None,
 			dev_ptr: None
 		})))
+	}
+}
+
+impl Drop for DmaBackend {
+	fn drop(&mut self) {
+		wlog!(DebugLevel::Important, "dma backend", "dropping self", WHITE, CYAN);
+		if let Err(er) = self.destroy() {
+			wlog!(
+				DebugLevel::Error,
+				"dma backend",
+				format!("error while dropping: {er:?}"),
+				WHITE,
+				CYAN
+			);
+		};
 	}
 }

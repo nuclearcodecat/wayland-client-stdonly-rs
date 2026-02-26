@@ -112,7 +112,7 @@ impl App {
 					*cb = Some(new_cb);
 					*frame = frame.wrapping_add(1);
 
-					unsafe {
+					{
 						// should be created above
 						let accessor = surf.attached_buf.as_ref().unwrap();
 						let mut accessor = accessor.borrow_mut();

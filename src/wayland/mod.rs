@@ -206,7 +206,7 @@ impl WaylandObjectKind {
 			WaylandObjectKind::XdgSurface => "xdg_surface",
 			WaylandObjectKind::DmaBuf => "zwp_linux_dmabuf_v1",
 			WaylandObjectKind::SharedMemory => "wl_shm",
-			WaylandObjectKind::SharedMemoryPool => "wl_shm_poll",
+			WaylandObjectKind::SharedMemoryPool => "wl_shm_pool",
 			WaylandObjectKind::DmaFeedback => "zwp_linux_dmabuf_feedback_v1",
 			WaylandObjectKind::Callback => "wl_callback",
 			WaylandObjectKind::DmaParams => "zwp_linux_buffer_params_v1",
@@ -243,7 +243,7 @@ impl IdentManager {
 			wlog!(
 				DebugLevel::Trivial,
 				"wlim",
-				format!("new id picked from free pool: {}", self.top_id),
+				format!("new id picked from free pool: {}", id),
 				YELLOW,
 				NONE
 			);
@@ -447,14 +447,19 @@ impl God {
 				}
 				Action::Resize(w, h, surf) => {
 					dbug!(format!("RESIZING {w} {h}"));
-					let surface = surf.borrow();
-					if let Some(rcbuf) = &surface.attached_buf {
+					let buf = {
+						let mut surface = surf.borrow_mut();
+						surface.w = w;
+						surface.h = h;
+						surface.attached_buf.clone()
+					};
+					if let Some(rcbuf) = &buf {
 						let backend = {
 							let buf = rcbuf.borrow();
 							buf.backend.clone()
 						};
 						let mut backend = backend.borrow_mut();
-						backend.resize(&mut self.wlmm, &mut self.wlim, rcbuf, w, h)?
+						backend.resize(self, rcbuf, w, h)?
 					} else {
 						conseq.push_back(Consequence::Trace(
 							DebugLevel::Important,

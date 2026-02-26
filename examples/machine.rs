@@ -4,7 +4,7 @@ use std::{
 	io::{BufRead, BufReader, Read},
 };
 
-use waytinier::abstraction::app::{App, TopLevelWindow};
+use waytinier::{BufferAccessor, TopLevelWindowWizard, abstraction::app::App};
 
 struct AppState {
 	img_w: usize,
@@ -14,31 +14,12 @@ struct AppState {
 
 fn main() -> Result<(), Box<dyn Error>> {
 	let mut app = App::new()?;
-	let window = TopLevelWindow::spawner(&mut app)
+	let window = TopLevelWindowWizard::new(&mut app)
 		.with_app_id("waytinier-demo")
 		.with_title("waytinier demo")
+		.with_pixel_format(waytinier::PixelFormat::Xrgb888)
 		.spawn()?;
-	let _ = app.push_presenter(window)?;
-	let window = TopLevelWindow::spawner(&mut app)
-		.with_app_id("waytinier-demo2")
-		.with_title("waytinier demo2")
-		.spawn()?;
-	let _ = app.push_presenter(window)?;
-	let window = TopLevelWindow::spawner(&mut app)
-		.with_app_id("waytinier-demo3")
-		.with_title("waytinier demo3")
-		.spawn()?;
-	let _ = app.push_presenter(window)?;
-	let window = TopLevelWindow::spawner(&mut app)
-		.with_app_id("waytinier-demo4")
-		.with_title("waytinier demo4")
-		.spawn()?;
-	let _ = app.push_presenter(window)?;
-	let window = TopLevelWindow::spawner(&mut app)
-		.with_app_id("waytinier-demo5")
-		.with_title("waytinier demo5")
-		.spawn()?;
-	let _ = app.push_presenter(window)?;
+	app.push_presenter(window);
 
 	let (img_w, img_h, machine) = parse_pix("pix.ppm")?;
 	let mut state = AppState {
@@ -48,7 +29,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 	};
 
 	loop {
-		let done = app.work(&mut state, |state, ss| {
+		if app.work(&mut state, |state, ss| {
+			let buf = match ss.buf {
+				BufferAccessor::ShmSlice(ptr) => unsafe { &mut **ptr },
+				BufferAccessor::DmaBufFd(_owned_fd) => {
+					return;
+				}
+			};
 			let (r, g, b) = hsv_to_rgb((ss.frame % 360) as f64, 1.0, 1.0);
 			let start_x = ss.w as isize / 2 - state.img_w as isize / 2;
 			let start_y = ss.h as isize / 2 - state.img_h as isize / 2;
@@ -65,18 +52,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 						&& rel_y >= 0 && rel_y < state.img_h as isize
 					{
 						let img_ix = (rel_y as usize * img_w + rel_x as usize) * 3;
-						ss.buf[surface_ix + 2] = state.machine[img_ix];
-						ss.buf[surface_ix + 1] = state.machine[img_ix + 1];
-						ss.buf[surface_ix] = state.machine[img_ix + 2];
+						buf[surface_ix + 2] = state.machine[img_ix];
+						buf[surface_ix + 1] = state.machine[img_ix + 1];
+						buf[surface_ix] = state.machine[img_ix + 2];
 					} else {
-						ss.buf[surface_ix] = b.wrapping_sub(x as u8);
-						ss.buf[surface_ix + 1] = g.wrapping_add(y as u8);
-						ss.buf[surface_ix + 2] = r.wrapping_shl(x as u32);
+						buf[surface_ix] = b.wrapping_sub(x as u8);
+						buf[surface_ix + 1] = g.wrapping_add(y as u8);
+						buf[surface_ix + 2] = r.wrapping_shl(x as u32);
 					}
 				}
 			}
-		})?;
-		if done {
+		})? {
 			break;
 		}
 	}
